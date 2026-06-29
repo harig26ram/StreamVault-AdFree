@@ -1,5 +1,7 @@
 package com.streamvault.app.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -13,67 +15,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.streamvault.app.settings.SettingsManager
 import com.streamvault.app.ui.theme.*
-
-data class SettingItem(
-    val icon: ImageVector,
-    val title: String,
-    val subtitle: String? = null,
-    val iconTint: Color = TextSecondary,
-    val hasToggle: Boolean = false,
-    val isToggled: Boolean = false
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
-    var adBlockingEnabled by remember { mutableStateOf(true) }
-    var darkModeEnabled by remember { mutableStateOf(true) }
-    var backgroundPlayEnabled by remember { mutableStateOf(true) }
-    var sponsorBlockEnabled by remember { mutableStateOf(true) }
-
-    val settingsGroups = remember {
-        listOf(
-            "Account" to listOf(
-                SettingItem(Icons.Filled.AccountCircle, "Sign in with Google", "Access your YouTube account", Accent),
-                SettingItem(Icons.Filled.Person, "Profile", "Manage your profile"),
-                SettingItem(Icons.Filled.Subscriptions, "Subscriptions", "12 channels")
-            ),
-            "Playback" to listOf(
-                SettingItem(Icons.Filled.PlayArrow, "Autoplay", "Play next video automatically", hasToggle = true, isToggled = true),
-                SettingItem(Icons.Filled.MusicNote, "Background Play", "Play audio in background", hasToggle = true, isToggled = backgroundPlayEnabled),
-                SettingItem(Icons.Filled.HighQuality, "Video Quality", "Default: 1080p"),
-                SettingItem(Icons.Filled.Subtitles, "Captions", "English (Auto-generated)")
-            ),
-            "Privacy & Security" to listOf(
-                SettingItem(Icons.Filled.Shield, "Ad Blocking", "Block ads and trackers", Accent, hasToggle = true, isToggled = adBlockingEnabled),
-                SettingItem(Icons.Filled.Block, "SponsorBlock", "Skip sponsor segments", Accent, hasToggle = true, isToggled = sponsorBlockEnabled),
-                SettingItem(Icons.Filled.Visibility, "Watch History", "Save watch history", hasToggle = true, isToggled = true),
-                SettingItem(Icons.Filled.Delete, "Clear History", "Delete all watch history", iconTint = Error)
-            ),
-            "Appearance" to listOf(
-                SettingItem(Icons.Filled.DarkMode, "Dark Mode", "Always enabled", hasToggle = true, isToggled = darkModeEnabled),
-                SettingItem(Icons.Filled.Palette, "Theme Color", "Green"),
-                SettingItem(Icons.Filled.TextFormat, "Text Size", "Medium")
-            ),
-            "About" to listOf(
-                SettingItem(Icons.Filled.Info, "About StreamVault", "Version 1.0.0"),
-                SettingItem(Icons.Filled.Star, "Rate App", "Rate us on Play Store"),
-                SettingItem(Icons.Filled.Description, "Privacy Policy", ""),
-                SettingItem(Icons.Filled.Code, "Open Source", "Licenses and credits")
-            )
-        )
-    }
+    val context = LocalContext.current
+    var adBlockingEnabled by remember { mutableStateOf(SettingsManager.adBlockingEnabled) }
+    var darkModeEnabled by remember { mutableStateOf(SettingsManager.darkModeEnabled) }
+    var backgroundPlayEnabled by remember { mutableStateOf(SettingsManager.backgroundPlayEnabled) }
+    var sponsorBlockEnabled by remember { mutableStateOf(SettingsManager.sponsorBlockEnabled) }
+    var autoplayEnabled by remember { mutableStateOf(SettingsManager.autoplayEnabled) }
+    var watchHistoryEnabled by remember { mutableStateOf(SettingsManager.watchHistoryEnabled) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        // Top App Bar
         TopAppBar(
             title = {
                 Text(
@@ -87,32 +51,209 @@ fun SettingsScreen() {
             )
         )
 
-        // Settings List
         LazyColumn(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            settingsGroups.forEach { (groupName, settings) ->
-                item(key = "header_$groupName") {
-                    Text(
-                        text = groupName,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Accent,
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
-                }
+            item(key = "header_account") {
+                Text(
+                    text = "Account",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Accent,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
 
-                items(settings.size) { index ->
-                    SettingCard(
-                        setting = settings[index],
-                        onToggle = { }
-                    )
-                }
+            item {
+                SettingCard(
+                    icon = Icons.Filled.AccountCircle,
+                    title = "Sign in with Google",
+                    subtitle = "Access your YouTube account",
+                    iconTint = Accent,
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://accounts.google.com"))
+                        context.startActivity(intent)
+                    }
+                )
+            }
 
-                item(key = "spacer_$groupName") {
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
+            item {
+                SettingCard(
+                    icon = Icons.Filled.Subscriptions,
+                    title = "Subscriptions",
+                    subtitle = "View your YouTube subscriptions",
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://m.youtube.com/feed/channels"))
+                        context.startActivity(intent)
+                    }
+                )
+            }
+
+            item(key = "spacer_account") {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            item(key = "header_playback") {
+                Text(
+                    text = "Playback",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Accent,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+
+            item {
+                SettingCardToggle(
+                    icon = Icons.Filled.PlayArrow,
+                    title = "Autoplay",
+                    subtitle = "Play next video automatically",
+                    isToggled = autoplayEnabled,
+                    onToggle = {
+                        autoplayEnabled = it
+                        SettingsManager.autoplayEnabled = it
+                    }
+                )
+            }
+
+            item {
+                SettingCardToggle(
+                    icon = Icons.Filled.MusicNote,
+                    title = "Background Play",
+                    subtitle = "Play audio when app is in background",
+                    isToggled = backgroundPlayEnabled,
+                    onToggle = {
+                        backgroundPlayEnabled = it
+                        SettingsManager.backgroundPlayEnabled = it
+                    }
+                )
+            }
+
+            item {
+                SettingCard(
+                    icon = Icons.Filled.HighQuality,
+                    title = "Video Quality",
+                    subtitle = "Default: ${SettingsManager.videoQuality}",
+                    onClick = { }
+                )
+            }
+
+            item(key = "spacer_playback") {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            item(key = "header_privacy") {
+                Text(
+                    text = "Privacy & Security",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Accent,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+
+            item {
+                SettingCardToggle(
+                    icon = Icons.Filled.Shield,
+                    title = "Ad Blocking",
+                    subtitle = "Block ads and trackers on YouTube",
+                    iconTint = Accent,
+                    isToggled = adBlockingEnabled,
+                    onToggle = {
+                        adBlockingEnabled = it
+                        SettingsManager.adBlockingEnabled = it
+                    }
+                )
+            }
+
+            item {
+                SettingCardToggle(
+                    icon = Icons.Filled.Block,
+                    title = "SponsorBlock",
+                    subtitle = "Skip sponsor segments in videos",
+                    iconTint = Accent,
+                    isToggled = sponsorBlockEnabled,
+                    onToggle = {
+                        sponsorBlockEnabled = it
+                        SettingsManager.sponsorBlockEnabled = it
+                    }
+                )
+            }
+
+            item {
+                SettingCardToggle(
+                    icon = Icons.Filled.Visibility,
+                    title = "Watch History",
+                    subtitle = "Save your watch history on YouTube",
+                    isToggled = watchHistoryEnabled,
+                    onToggle = {
+                        watchHistoryEnabled = it
+                        SettingsManager.watchHistoryEnabled = it
+                    }
+                )
+            }
+
+            item(key = "spacer_privacy") {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            item(key = "header_appearance") {
+                Text(
+                    text = "Appearance",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Accent,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+
+            item {
+                SettingCardToggle(
+                    icon = Icons.Filled.DarkMode,
+                    title = "Dark Mode",
+                    subtitle = if (darkModeEnabled) "Enabled (restart app to apply)" else "Disabled (restart app to apply)",
+                    isToggled = darkModeEnabled,
+                    onToggle = {
+                        darkModeEnabled = it
+                        SettingsManager.darkModeEnabled = it
+                    }
+                )
+            }
+
+            item(key = "spacer_appearance") {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            item(key = "header_about") {
+                Text(
+                    text = "About",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Accent,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+
+            item {
+                SettingCard(
+                    icon = Icons.Filled.Info,
+                    title = "About StreamVault",
+                    subtitle = "Version 1.1.0",
+                    onClick = { }
+                )
+            }
+
+            item {
+                SettingCard(
+                    icon = Icons.Filled.Code,
+                    title = "Open Source",
+                    subtitle = "Licenses and credits",
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/harig26ram/StreamVault-AdFree"))
+                        context.startActivity(intent)
+                    }
+                )
             }
         }
     }
@@ -120,7 +261,64 @@ fun SettingsScreen() {
 
 @Composable
 fun SettingCard(
-    setting: SettingItem,
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    iconTint: Color = TextSecondary,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = DarkCard
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextPrimary
+                )
+                subtitle?.let {
+                    Text(
+                        text = it,
+                        fontSize = 13.sp,
+                        color = TextSecondary
+                    )
+                }
+            }
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = TextMuted
+            )
+        }
+    }
+}
+
+@Composable
+fun SettingCardToggle(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    iconTint: Color = TextSecondary,
+    isToggled: Boolean,
     onToggle: (Boolean) -> Unit
 ) {
     Card(
@@ -133,50 +331,42 @@ fun SettingCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { if (setting.hasToggle) onToggle(!setting.isToggled) }
+                .clickable { onToggle(!isToggled) }
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = setting.icon,
+                imageVector = icon,
                 contentDescription = null,
-                tint = setting.iconTint,
+                tint = iconTint,
                 modifier = Modifier.size(24.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = setting.title,
+                    text = title,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                     color = TextPrimary
                 )
-                setting.subtitle?.let { subtitle ->
+                subtitle?.let {
                     Text(
-                        text = subtitle,
+                        text = it,
                         fontSize = 13.sp,
                         color = TextSecondary
                     )
                 }
             }
-            if (setting.hasToggle) {
-                Switch(
-                    checked = setting.isToggled,
-                    onCheckedChange = onToggle,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White,
-                        checkedTrackColor = Accent,
-                        uncheckedThumbColor = TextMuted,
-                        uncheckedTrackColor = DarkCardElevated
-                    )
+            Switch(
+                checked = isToggled,
+                onCheckedChange = onToggle,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Accent,
+                    uncheckedThumbColor = TextMuted,
+                    uncheckedTrackColor = DarkCardElevated
                 )
-            } else {
-                Icon(
-                    Icons.Filled.ChevronRight,
-                    contentDescription = null,
-                    tint = TextMuted
-                )
-            }
+            )
         }
     }
 }

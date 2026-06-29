@@ -1,5 +1,6 @@
 package com.streamvault.app.ui
 
+import android.webkit.WebView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -21,6 +22,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.streamvault.app.ui.screens.*
 import com.streamvault.app.ui.theme.*
+
+object StreamVaultApp {
+    var currentWebView: WebView? = null
+        internal set
+}
 
 @Composable
 fun StreamVaultApp() {
