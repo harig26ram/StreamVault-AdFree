@@ -2,15 +2,15 @@ package com.streamvault.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary Colors - Dark Audio + Play Green
-val DarkBackground = Color(0xFF0F0F23)
-val DarkSurface = Color(0xFF1A1A2E)
-val DarkCard = Color(0xFF16213E)
+// Primary Colors - Cinema Dark + Play Red (from ui-ux-pro-max design system)
+val DarkBackground = Color(0xFF000000)
+val DarkSurface = Color(0xFF0A0A0A)
+val DarkCard = Color(0xFF141414)
 
 // Brand Colors
 val Primary = Color(0xFF1E1B4B)
 val Secondary = Color(0xFF4338CA)
-val Accent = Color(0xFF22C55E)
+val Accent = Color(0xFFE11D48)
 
 // Text Colors
 val TextPrimary = Color(0xFFF8FAFC)

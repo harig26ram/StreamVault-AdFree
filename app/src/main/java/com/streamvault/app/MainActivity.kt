@@ -10,6 +10,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.streamvault.app.settings.SettingsManager
 import com.streamvault.app.ui.StreamVaultApp
+import com.streamvault.app.ui.StreamVaultState
 import com.streamvault.app.ui.theme.StreamVaultTheme
 
 class MainActivity : ComponentActivity() {
@@ -22,7 +23,8 @@ class MainActivity : ComponentActivity() {
 
         backCallback = object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                val webView = StreamVaultApp.currentWebView
+                val currentTab = StreamVaultState.currentTab
+                val webView = StreamVaultState.getWebView(currentTab)
                 if (webView != null && webView.canGoBack()) {
                     webView.goBack()
                 } else {
@@ -43,5 +45,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        StreamVaultState.webViews.values.forEach { webView ->
+            webView?.apply {
+                stopLoading()
+                loadUrl("about:blank")
+                removeAllViews()
+                destroy()
+            }
+        }
+        StreamVaultState.webViews.clear()
+        super.onDestroy()
     }
 }

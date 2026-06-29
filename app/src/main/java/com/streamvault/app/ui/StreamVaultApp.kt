@@ -15,7 +15,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -23,17 +22,21 @@ import androidx.compose.ui.unit.sp
 import com.streamvault.app.ui.screens.*
 import com.streamvault.app.ui.theme.*
 
-object StreamVaultApp {
-    var currentWebView: WebView? = null
-        internal set
+object StreamVaultState {
+    val webViews = mutableStateMapOf<Int, WebView?>()
+    var currentTab by mutableIntStateOf(0)
+    var isSplashDone by mutableStateOf(false)
+
+    fun getWebView(tab: Int): WebView? = webViews[tab]
+    fun setWebView(tab: Int, webView: WebView?) {
+        webViews[tab] = webView
+    }
 }
 
 @Composable
 fun StreamVaultApp() {
-    var showSplash by remember { mutableStateOf(true) }
-
-    if (showSplash) {
-        SplashScreen(onSplashComplete = { showSplash = false })
+    if (!StreamVaultState.isSplashDone) {
+        SplashScreen(onSplashComplete = { StreamVaultState.isSplashDone = true })
     } else {
         MainScreen()
     }
@@ -83,7 +86,7 @@ fun SplashScreen(onSplashComplete: () -> Unit) {
         ) {
             Icon(
                 imageVector = Icons.Filled.PlayCircle,
-                contentDescription = "StreamVault",
+                contentDescription = "StreamVault Logo",
                 modifier = Modifier.size(120.dp),
                 tint = Accent
             )
@@ -107,91 +110,45 @@ fun SplashScreen(onSplashComplete: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen() {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    val tabs = listOf(
+        TabItem("Home", Icons.Filled.Home, Icons.Outlined.Home, 0),
+        TabItem("Music", Icons.Filled.MusicNote, Icons.Outlined.MusicNote, 1),
+        TabItem("Search", Icons.Filled.Search, Icons.Outlined.Search, 2),
+        TabItem("Settings", Icons.Filled.Settings, Icons.Outlined.Settings, 3)
+    )
 
     Scaffold(
         bottomBar = {
             NavigationBar(
                 containerColor = DarkSurface,
-                contentColor = TextPrimary
+                contentColor = TextPrimary,
+                tonalElevation = 0.dp
             ) {
-                NavigationBarItem(
-                    icon = {
-                        Icon(
-                            if (selectedTab == 0) Icons.Filled.Home else Icons.Outlined.Home,
-                            contentDescription = "Home"
+                tabs.forEach { tab ->
+                    NavigationBarItem(
+                        icon = {
+                            Icon(
+                                if (StreamVaultState.currentTab == tab.index) tab.selectedIcon else tab.unselectedIcon,
+                                contentDescription = tab.label
+                            )
+                        },
+                        label = { Text(tab.label, fontSize = 11.sp) },
+                        selected = StreamVaultState.currentTab == tab.index,
+                        onClick = { StreamVaultState.currentTab = tab.index },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = Accent,
+                            selectedTextColor = Accent,
+                            unselectedIconColor = TextMuted,
+                            unselectedTextColor = TextMuted,
+                            indicatorColor = Accent.copy(alpha = 0.1f)
                         )
-                    },
-                    label = { Text("Home") },
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Accent,
-                        selectedTextColor = Accent,
-                        unselectedIconColor = TextMuted,
-                        unselectedTextColor = TextMuted,
-                        indicatorColor = Accent.copy(alpha = 0.1f)
                     )
-                )
-                NavigationBarItem(
-                    icon = {
-                        Icon(
-                            if (selectedTab == 1) Icons.Filled.MusicNote else Icons.Outlined.MusicNote,
-                            contentDescription = "Music"
-                        )
-                    },
-                    label = { Text("Music") },
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Accent,
-                        selectedTextColor = Accent,
-                        unselectedIconColor = TextMuted,
-                        unselectedTextColor = TextMuted,
-                        indicatorColor = Accent.copy(alpha = 0.1f)
-                    )
-                )
-                NavigationBarItem(
-                    icon = {
-                        Icon(
-                            if (selectedTab == 2) Icons.Filled.Search else Icons.Outlined.Search,
-                            contentDescription = "Search"
-                        )
-                    },
-                    label = { Text("Search") },
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Accent,
-                        selectedTextColor = Accent,
-                        unselectedIconColor = TextMuted,
-                        unselectedTextColor = TextMuted,
-                        indicatorColor = Accent.copy(alpha = 0.1f)
-                    )
-                )
-                NavigationBarItem(
-                    icon = {
-                        Icon(
-                            if (selectedTab == 3) Icons.Filled.Settings else Icons.Outlined.Settings,
-                            contentDescription = "Settings"
-                        )
-                    },
-                    label = { Text("Settings") },
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Accent,
-                        selectedTextColor = Accent,
-                        unselectedIconColor = TextMuted,
-                        unselectedTextColor = TextMuted,
-                        indicatorColor = Accent.copy(alpha = 0.1f)
-                    )
-                )
+                }
             }
         }
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
-            when (selectedTab) {
+            when (StreamVaultState.currentTab) {
                 0 -> HomeScreen()
                 1 -> MusicScreen()
                 2 -> SearchScreen()
@@ -200,3 +157,10 @@ fun MainScreen() {
         }
     }
 }
+
+data class TabItem(
+    val label: String,
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector,
+    val index: Int
+)

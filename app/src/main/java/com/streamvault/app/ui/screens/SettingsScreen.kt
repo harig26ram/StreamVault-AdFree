@@ -26,6 +26,7 @@ import com.streamvault.app.ui.theme.*
 @Composable
 fun SettingsScreen() {
     val context = LocalContext.current
+
     var adBlockingEnabled by remember { mutableStateOf(SettingsManager.adBlockingEnabled) }
     var darkModeEnabled by remember { mutableStateOf(SettingsManager.darkModeEnabled) }
     var backgroundPlayEnabled by remember { mutableStateOf(SettingsManager.backgroundPlayEnabled) }
@@ -48,7 +49,8 @@ fun SettingsScreen() {
             },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = DarkBackground
-            )
+            ),
+            windowInsets = WindowInsets(0, 0, 0, 0)
         )
 
         LazyColumn(
@@ -56,13 +58,7 @@ fun SettingsScreen() {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item(key = "header_account") {
-                Text(
-                    text = "Account",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Accent,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
+                SectionHeader("Account")
             }
 
             item {
@@ -95,13 +91,7 @@ fun SettingsScreen() {
             }
 
             item(key = "header_playback") {
-                Text(
-                    text = "Playback",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Accent,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
+                SectionHeader("Playback")
             }
 
             item {
@@ -121,7 +111,7 @@ fun SettingsScreen() {
                 SettingCardToggle(
                     icon = Icons.Filled.MusicNote,
                     title = "Background Play",
-                    subtitle = "Play audio when app is in background",
+                    subtitle = "Keep audio playing when app is in background",
                     isToggled = backgroundPlayEnabled,
                     onToggle = {
                         backgroundPlayEnabled = it
@@ -144,13 +134,7 @@ fun SettingsScreen() {
             }
 
             item(key = "header_privacy") {
-                Text(
-                    text = "Privacy & Security",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Accent,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
+                SectionHeader("Privacy & Security")
             }
 
             item {
@@ -199,13 +183,7 @@ fun SettingsScreen() {
             }
 
             item(key = "header_appearance") {
-                Text(
-                    text = "Appearance",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Accent,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
+                SectionHeader("Appearance")
             }
 
             item {
@@ -225,22 +203,48 @@ fun SettingsScreen() {
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            item(key = "header_about") {
-                Text(
-                    text = "About",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Accent,
-                    modifier = Modifier.padding(vertical = 8.dp)
+            item(key = "header_data") {
+                SectionHeader("Data")
+            }
+
+            item {
+                SettingCard(
+                    icon = Icons.Filled.Delete,
+                    title = "Clear Search History",
+                    subtitle = "Remove all recent searches",
+                    iconTint = Error,
+                    onClick = {
+                        SettingsManager.clearAllSearches()
+                    }
                 )
+            }
+
+            item(key = "spacer_data") {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            item(key = "header_about") {
+                SectionHeader("About")
             }
 
             item {
                 SettingCard(
                     icon = Icons.Filled.Info,
                     title = "About StreamVault",
-                    subtitle = "Version 1.1.0",
+                    subtitle = "Version 2.0.0",
                     onClick = { }
+                )
+            }
+
+            item {
+                SettingCard(
+                    icon = Icons.Filled.Star,
+                    title = "Rate App",
+                    subtitle = "Rate us on Play Store",
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.streamvault.app"))
+                        context.startActivity(intent)
+                    }
                 )
             }
 
@@ -255,8 +259,31 @@ fun SettingsScreen() {
                     }
                 )
             }
+
+            item {
+                SettingCard(
+                    icon = Icons.Filled.Description,
+                    title = "Privacy Policy",
+                    subtitle = "",
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/harig26ram/StreamVault-AdFree/blob/main/PRIVACY.md"))
+                        context.startActivity(intent)
+                    }
+                )
+            }
         }
     }
+}
+
+@Composable
+fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        fontSize = 14.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = Accent,
+        modifier = Modifier.padding(vertical = 8.dp)
+    )
 }
 
 @Composable

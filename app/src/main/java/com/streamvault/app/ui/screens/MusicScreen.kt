@@ -11,7 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.streamvault.app.ui.StreamVaultApp
+import com.streamvault.app.settings.SettingsManager
+import com.streamvault.app.ui.StreamVaultState
 import com.streamvault.app.ui.theme.*
 import com.streamvault.app.webview.YouTubeWebView
 
@@ -45,18 +46,10 @@ fun MusicScreen() {
                     )
                 }
             },
-            actions = {
-                IconButton(onClick = { }) {
-                    Icon(
-                        Icons.Filled.Cast,
-                        contentDescription = "Cast",
-                        tint = TextSecondary
-                    )
-                }
-            },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = DarkBackground
-            )
+            ),
+            windowInsets = WindowInsets(0, 0, 0, 0)
         )
 
         if (progress in 1..99) {
@@ -70,13 +63,16 @@ fun MusicScreen() {
             )
         }
 
-        YouTubeWebView(
-            url = "https://music.youtube.com",
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            onProgressChanged = { progress = it },
-            webViewRef = { StreamVaultApp.currentWebView = it }
-        )
+        Box(modifier = Modifier.weight(1f)) {
+            YouTubeWebView(
+                url = "https://music.youtube.com",
+                modifier = Modifier.fillMaxSize(),
+                adBlockingEnabled = SettingsManager.adBlockingEnabled,
+                sponsorBlockEnabled = SettingsManager.sponsorBlockEnabled,
+                backgroundPlayEnabled = SettingsManager.backgroundPlayEnabled,
+                onProgressChanged = { progress = it },
+                webViewRef = { StreamVaultState.setWebView(1, it) }
+            )
+        }
     }
 }
