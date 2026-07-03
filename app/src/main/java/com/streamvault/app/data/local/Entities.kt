@@ -1,0 +1,66 @@
+package com.streamvault.app.data.local
+
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import com.streamvault.app.domain.model.Video
+
+@Entity(tableName = "watch_history")
+data class WatchHistoryEntity(
+    @PrimaryKey @ColumnInfo(name = "video_id") val videoId: String,
+    @ColumnInfo(name = "title") val title: String = "",
+    @ColumnInfo(name = "channel_name") val channelName: String = "",
+    @ColumnInfo(name = "channel_id") val channelId: String = "",
+    @ColumnInfo(name = "channel_avatar") val channelAvatar: String = "",
+    @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String = "",
+    @ColumnInfo(name = "duration") val duration: String = "",
+    @ColumnInfo(name = "watched_at") val watchedAt: Long = System.currentTimeMillis()
+) {
+    fun toDomain(): Video = Video(
+        id = videoId,
+        title = title,
+        channelName = channelName,
+        channelId = channelId,
+        channelAvatar = channelAvatar,
+        thumbnailUrl = thumbnailUrl,
+        duration = duration,
+        viewCount = "",
+        publishedTime = "",
+        videoUrl = ""
+    )
+
+    companion object {
+        fun fromDomain(video: Video): WatchHistoryEntity = WatchHistoryEntity(
+            videoId = video.id,
+            title = video.title,
+            channelName = video.channelName,
+            channelId = video.channelId,
+            channelAvatar = video.channelAvatar,
+            thumbnailUrl = video.thumbnailUrl,
+            duration = video.duration
+        )
+    }
+}
+
+@Entity(tableName = "subscriptions")
+data class SubscriptionEntity(
+    @PrimaryKey @ColumnInfo(name = "channel_id") val channelId: String,
+    @ColumnInfo(name = "channel_name") val channelName: String = "",
+    @ColumnInfo(name = "channel_avatar") val channelAvatar: String = "",
+    @ColumnInfo(name = "subscribed_at") val subscribedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "watch_later")
+data class WatchLaterEntity(
+    @PrimaryKey @ColumnInfo(name = "video_id") val videoId: String,
+    @ColumnInfo(name = "title") val title: String = "",
+    @ColumnInfo(name = "channel_name") val channelName: String = "",
+    @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String = "",
+    @ColumnInfo(name = "added_at") val addedAt: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "app_settings")
+data class SettingEntity(
+    @PrimaryKey @ColumnInfo(name = "key") val key: String,
+    @ColumnInfo(name = "value") val value: String = ""
+)

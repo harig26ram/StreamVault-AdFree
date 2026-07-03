@@ -14,3 +14,8 @@ local.properties
 *.aab
 *.jks
 *.keystore
+secrets.properties
+*.txt
+*.xml
+*.png
+*.log

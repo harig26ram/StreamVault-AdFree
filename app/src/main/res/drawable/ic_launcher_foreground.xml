@@ -4,11 +4,10 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Shield icon -->
     <path
-        android:fillColor="#FB542B"
-        android:pathData="M54,20 L30,30 L30,55 C30,72 40,87 54,92 C68,87 78,72 78,55 L78,30 Z"/>
+        android:fillColor="#3B82F6"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,35 L45,50 L42,50 L42,60 L48,60 L48,55 L54,55 L60,55 L60,60 L66,60 L66,50 L63,50 Z"/>
+        android:pathData="M46,38L46,70L68,54Z" />
 </vector>
