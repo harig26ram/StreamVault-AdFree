@@ -11,6 +11,9 @@ import com.streamvault.app.data.api.SearchRequest
 import com.streamvault.app.data.api.YouTubeApiService
 import com.streamvault.app.data.api.VideoDetails
 import com.streamvault.app.data.local.VideoDao
+import com.streamvault.player.youtube.CipherDecryptor
+import com.streamvault.player.youtube.NParamDecryptor
+import com.streamvault.player.youtube.StreamUrlExtractor
 import com.streamvault.app.data.model.ExpandedShelfContentsRenderer
 import com.streamvault.app.data.model.GridRenderer
 import com.streamvault.app.data.model.GridVideoRenderer
@@ -38,6 +41,11 @@ class VideoRepositoryImpl @Inject constructor(
     private val apiService: YouTubeApiService,
     private val videoDao: VideoDao
 ) : VideoRepository {
+
+    private val streamUrlExtractor = StreamUrlExtractor(
+        cipherDecryptor = CipherDecryptor(),
+        nParamDecryptor = NParamDecryptor()
+    )
 
     companion object {
         private const val TAG = "VideoRepository"
@@ -795,7 +803,29 @@ class VideoRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getSubscriptions(): Result<HomeFeed> {
-        return getTrending()
+        return try {
+            val request = BrowseRequest(
+                context = defaultContext(),
+                browseId = "FEsubscriptions"
+            )
+            val response = apiService.browseRaw(request)
+            if (response.isSuccessful) {
+                val body = response.body()?.string() ?: "{}"
+                val items = parseBrowseResponse(body)
+                if (items.isEmpty()) {
+                    Log.w(TAG, "Subscriptions feed returned no items, user may not be authenticated")
+                    Result.failure(Exception("Sign in to see subscriptions"))
+                } else {
+                    Result.success(HomeFeed(items = items, continuationToken = null))
+                }
+            } else {
+                Log.w(TAG, "Subscriptions feed error: ${response.code()}")
+                Result.failure(Exception("Sign in to see subscriptions"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Subscriptions feed exception", e)
+            Result.failure(Exception("Sign in to see subscriptions"))
+        }
     }
 
     override suspend fun getVideoStreamUrl(videoId: String): Result<String> {
@@ -824,11 +854,17 @@ class VideoRepositoryImpl @Inject constructor(
                         ?.maxByOrNull { it.height ?: 0 }
                         ?.url
                     ?: playerResponse?.streamingData?.hlsManifestUrl
+
                 if (streamUrl != null) {
                     Result.success(streamUrl)
                 } else {
-                    Log.e(TAG, "No stream URL found. Status: ${playerResponse?.playabilityStatus?.status}, Reason: ${playerResponse?.playabilityStatus?.reason}")
-                    Result.failure(Exception("No stream available: ${playerResponse?.playabilityStatus?.reason ?: "unknown"}"))
+                    val cipherUrl = tryDecryptSingleCipherUrl(playerResponse)
+                    if (cipherUrl != null) {
+                        Result.success(cipherUrl)
+                    } else {
+                        Log.e(TAG, "No stream URL found. Status: ${playerResponse?.playabilityStatus?.status}, Reason: ${playerResponse?.playabilityStatus?.reason}")
+                        Result.failure(Exception("No stream available: ${playerResponse?.playabilityStatus?.reason ?: "unknown"}"))
+                    }
                 }
             } else {
                 Result.failure(Exception("Stream error: ${response.code()}"))
@@ -836,6 +872,25 @@ class VideoRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Stream exception", e)
             Result.failure(e)
+        }
+    }
+
+    private fun tryDecryptSingleCipherUrl(playerResponse: com.streamvault.app.data.api.PlayerResponse?): String? {
+        try {
+            val cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: return null
+            val nTransformOp = NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull() ?: return null
+
+            val gson = com.google.gson.Gson()
+            val rawJson = gson.toJson(playerResponse)
+            val decryptedFormats = streamUrlExtractor.extract(rawJson, cipherOps, nTransformOp)
+
+            return decryptedFormats
+                .filter { it.type == com.streamvault.player.youtube.StreamType.PROGRESSIVE || it.mimeType.startsWith("video/") }
+                .maxByOrNull { it.height ?: 0 }
+                ?.url
+        } catch (e: Exception) {
+            Log.w(TAG, "Cipher URL decryption failed: ${e.message}")
+            return null
         }
     }
 
@@ -894,6 +949,11 @@ class VideoRepositoryImpl @Inject constructor(
                     }
                 }
 
+                if (formats.isEmpty()) {
+                    Log.d(TAG, "No direct URLs found, attempting cipher decryption via StreamUrlExtractor")
+                    tryDecryptCipherFormats(playerResponse, formats)
+                }
+
                 Log.d(TAG, "Found ${formats.size} formats for $videoId")
                 Result.success(formats)
             } else {
@@ -902,6 +962,43 @@ class VideoRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Formats exception", e)
             Result.failure(e)
+        }
+    }
+
+    private fun tryDecryptCipherFormats(
+        playerResponse: com.streamvault.app.data.api.PlayerResponse?,
+        formats: MutableList<com.streamvault.app.domain.model.VideoFormat>
+    ) {
+        try {
+            val streamingData = playerResponse?.streamingData ?: return
+            val hasCipherFormats = streamingData.formats?.any { it.signatureCipher != null || it.cipher != null } == true
+            val hasCipherAdaptive = streamingData.adaptiveFormats?.any { it.signatureCipher != null || it.cipher != null } == true
+            if (!hasCipherFormats && !hasCipherAdaptive) return
+
+            val cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: return
+            val nTransformOp = NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull() ?: return
+
+            val gson = com.google.gson.Gson()
+            val rawJson = gson.toJson(playerResponse)
+            val decryptedFormats = streamUrlExtractor.extract(rawJson, cipherOps, nTransformOp)
+
+            for (decrypted in decryptedFormats) {
+                formats.add(
+                    com.streamvault.app.domain.model.VideoFormat(
+                        itag = decrypted.itag,
+                        url = decrypted.url,
+                        mimeType = decrypted.mimeType,
+                        bitrate = decrypted.bitrate ?: 0,
+                        width = decrypted.width,
+                        height = decrypted.height,
+                        qualityLabel = "${decrypted.height}p",
+                        isAdaptive = decrypted.type != com.streamvault.player.youtube.StreamType.PROGRESSIVE
+                    )
+                )
+            }
+            Log.d(TAG, "Decrypted ${decryptedFormats.size} cipher-protected formats")
+        } catch (e: Exception) {
+            Log.w(TAG, "Cipher decryption failed: ${e.message}")
         }
     }
 
@@ -1045,6 +1142,22 @@ class VideoRepositoryImpl @Inject constructor(
 
     override suspend fun clearWatchHistory() {
         videoDao.clearWatchHistory()
+    }
+
+    override fun getWatchLater(): Flow<List<Video>> {
+        return videoDao.getWatchLater().map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+    override suspend fun addToWatchLater(video: Video) {
+        videoDao.insertWatchLater(
+            com.streamvault.app.data.local.WatchLaterEntity.fromDomain(video)
+        )
+    }
+
+    override suspend fun clearWatchLater() {
+        videoDao.clearWatchLater()
     }
 
     override fun getSubscriptionsList(): Flow<List<Channel>> {

@@ -39,4 +39,7 @@ interface VideoDao {
 
     @Query("DELETE FROM watch_later WHERE video_id = :videoId")
     suspend fun removeFromWatchLater(videoId: String)
+
+    @Query("DELETE FROM watch_later")
+    suspend fun clearWatchLater()
 }

@@ -22,7 +22,7 @@ object DatabaseModule {
             context,
             AppDatabase::class.java,
             "streamvault.db"
-        ).build()
+        ).fallbackToDestructiveMigration().build()
     }
 
     @Provides

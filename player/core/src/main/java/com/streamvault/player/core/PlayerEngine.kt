@@ -59,8 +59,8 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
     }
 
     fun loadStreams(
-        audioUrl: String,
-        videoUrl: String,
+        audioUrl: String?,
+        videoUrl: String?,
         progressiveUrl: String? = null
     ) {
         if (_state.value !is PlayerState.Idle && _state.value !is PlayerState.Error) {
@@ -76,7 +76,7 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
                 if (isProgressive) {
                     loadProgressive(progressiveUrl!!)
                 } else {
-                    loadAdaptive(audioUrl, videoUrl)
+                    loadAdaptive(audioUrl ?: "", videoUrl ?: "")
                 }
             } catch (e: Exception) {
                 _state.value = PlayerState.Error("Load failed: ${e.message}", e)
@@ -146,6 +146,7 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         _duration.value = maxOf(videoDur, audioDur) / 1000L
         videoDecoder?.start()
         audioDecoder?.start()
+        playbackClock.start()
     }
 
     private suspend fun loadAdaptive(audioUrl: String, videoUrl: String) {
@@ -199,6 +200,7 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
 
         audioDecoder?.start()
         videoDecoder?.start()
+        playbackClock.start()
     }
 
     fun play() {

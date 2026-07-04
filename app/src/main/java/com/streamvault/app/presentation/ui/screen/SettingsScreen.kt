@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.streamvault.app.BuildConfig
 import com.streamvault.app.presentation.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -187,7 +188,7 @@ fun SettingsScreen(
             SettingsSection(title = "About") {
                 SettingsItem(
                     title = "Version",
-                    subtitle = "4.0.0",
+                    subtitle = BuildConfig.VERSION_NAME,
                     icon = Icons.Default.Info,
                     onClick = { viewModel.showAboutDialog() }
                 )
@@ -308,7 +309,7 @@ fun SettingsScreen(
             title = { Text("StreamVault", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Version 4.0.0")
+                    Text("Version ${BuildConfig.VERSION_NAME}")
                     Text("Ad-free YouTube streaming with custom UI")
                     Text("Built with YouTube InnerTube API + custom MediaCodec player")
                     Text("Features:", fontWeight = FontWeight.Medium)

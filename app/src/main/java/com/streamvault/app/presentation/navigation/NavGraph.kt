@@ -1,12 +1,11 @@
 package com.streamvault.app.presentation.navigation
 
+import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -17,10 +16,45 @@ import com.streamvault.app.presentation.ui.components.BottomNavBar
 import com.streamvault.app.presentation.ui.screen.*
 
 @Composable
-fun MainNavGraph() {
+fun MainNavGraph(
+    startDestination: String = Screen.Home.route,
+    deepLinkUri: Uri? = null
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+
+    LaunchedEffect(deepLinkUri) {
+        deepLinkUri?.let { uri ->
+            val host = uri.host ?: return@let
+            if (host != "www.youtube.com") return@let
+            val path = uri.path ?: ""
+            val videoId = uri.getQueryParameter("v")
+            when {
+                videoId != null -> {
+                    navController.navigate(Screen.Player.createRoute(videoId)) {
+                        popUpTo(Screen.Home.route) { inclusive = true }
+                    }
+                }
+                path.startsWith("/channel/") -> {
+                    val channelId = path.removePrefix("/channel/")
+                    if (channelId.isNotEmpty()) {
+                        navController.navigate(Screen.Channel.createRoute(channelId)) {
+                            popUpTo(Screen.Home.route) { inclusive = true }
+                        }
+                    }
+                }
+                path.startsWith("/@") -> {
+                    val channelHandle = path.removePrefix("/@")
+                    if (channelHandle.isNotEmpty()) {
+                        navController.navigate(Screen.Channel.createRoute(channelHandle)) {
+                            popUpTo(Screen.Home.route) { inclusive = true }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     val bottomNavScreens = listOf(
         Screen.Home.route,
@@ -52,7 +86,7 @@ fun MainNavGraph() {
     ) { paddingValues ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Home.route,
+            startDestination = startDestination,
             modifier = Modifier.padding(paddingValues)
         ) {
             composable(Screen.Home.route) {
@@ -62,6 +96,9 @@ fun MainNavGraph() {
                     },
                     onChannelClick = { channelId ->
                         navController.navigate(Screen.Channel.createRoute(channelId))
+                    },
+                    onPlaylistClick = { playlistId ->
+                        navController.navigate(Screen.Playlist.createRoute(playlistId))
                     },
                     onSettingsClick = {
                         navController.navigate(Screen.Settings.route)
@@ -73,6 +110,12 @@ fun MainNavGraph() {
                 SearchScreen(
                     onVideoClick = { videoId ->
                         navController.navigate(Screen.Player.createRoute(videoId))
+                    },
+                    onChannelClick = { channelId ->
+                        navController.navigate(Screen.Channel.createRoute(channelId))
+                    },
+                    onPlaylistClick = { playlistId ->
+                        navController.navigate(Screen.Playlist.createRoute(playlistId))
                     }
                 )
             }

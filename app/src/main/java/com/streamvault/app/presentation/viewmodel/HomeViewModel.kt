@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.domain.model.FeedItem
 import com.streamvault.app.domain.model.HomeFeed
+import com.streamvault.app.domain.model.Video
+import com.streamvault.app.domain.usecase.AddToWatchLaterUseCase
 import com.streamvault.app.domain.usecase.GetHomeFeedUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +24,8 @@ data class HomeUiState(
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val getHomeFeedUseCase: GetHomeFeedUseCase
+    private val getHomeFeedUseCase: GetHomeFeedUseCase,
+    private val addToWatchLaterUseCase: AddToWatchLaterUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -102,6 +105,12 @@ class HomeViewModel @Inject constructor(
                     )
                 }
             )
+        }
+    }
+
+    fun addToWatchLater(video: Video) {
+        viewModelScope.launch {
+            addToWatchLaterUseCase(video)
         }
     }
 }

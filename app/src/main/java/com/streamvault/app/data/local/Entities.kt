@@ -14,6 +14,9 @@ data class WatchHistoryEntity(
     @ColumnInfo(name = "channel_avatar") val channelAvatar: String = "",
     @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String = "",
     @ColumnInfo(name = "duration") val duration: String = "",
+    @ColumnInfo(name = "view_count") val viewCount: String = "",
+    @ColumnInfo(name = "published_time") val publishedTime: String = "",
+    @ColumnInfo(name = "video_url") val videoUrl: String = "",
     @ColumnInfo(name = "watched_at") val watchedAt: Long = System.currentTimeMillis()
 ) {
     fun toDomain(): Video = Video(
@@ -24,9 +27,9 @@ data class WatchHistoryEntity(
         channelAvatar = channelAvatar,
         thumbnailUrl = thumbnailUrl,
         duration = duration,
-        viewCount = "",
-        publishedTime = "",
-        videoUrl = ""
+        viewCount = viewCount,
+        publishedTime = publishedTime,
+        videoUrl = videoUrl
     )
 
     companion object {
@@ -37,7 +40,10 @@ data class WatchHistoryEntity(
             channelId = video.channelId,
             channelAvatar = video.channelAvatar,
             thumbnailUrl = video.thumbnailUrl,
-            duration = video.duration
+            duration = video.duration,
+            viewCount = video.viewCount,
+            publishedTime = video.publishedTime,
+            videoUrl = video.videoUrl ?: ""
         )
     }
 }
@@ -57,7 +63,28 @@ data class WatchLaterEntity(
     @ColumnInfo(name = "channel_name") val channelName: String = "",
     @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String = "",
     @ColumnInfo(name = "added_at") val addedAt: Long = System.currentTimeMillis()
-)
+) {
+    fun toDomain(): Video = Video(
+        id = videoId,
+        title = title,
+        channelName = channelName,
+        channelId = "",
+        channelAvatar = "",
+        thumbnailUrl = thumbnailUrl,
+        duration = "",
+        viewCount = "",
+        publishedTime = ""
+    )
+
+    companion object {
+        fun fromDomain(video: Video): WatchLaterEntity = WatchLaterEntity(
+            videoId = video.id,
+            title = video.title,
+            channelName = video.channelName,
+            thumbnailUrl = video.thumbnailUrl
+        )
+    }
+}
 
 @Entity(tableName = "app_settings")
 data class SettingEntity(

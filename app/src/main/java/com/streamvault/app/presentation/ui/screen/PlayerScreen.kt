@@ -40,7 +40,11 @@ import com.streamvault.app.domain.model.VideoFormat
 import com.streamvault.app.presentation.viewmodel.PlayerViewModel
 import com.streamvault.player.core.PlayerState
 import com.streamvault.player.ui.*
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.text.style.TextAlign
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.floor
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -61,6 +65,10 @@ fun PlayerScreen(
     var showQualitySheet by remember { mutableStateOf(false) }
     var showCaptionSheet by remember { mutableStateOf(false) }
     var isAudioOnly by remember { mutableStateOf(false) }
+    var dragPosition by remember { mutableFloatStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+    var captionText by remember { mutableStateOf<String?>(null) }
+    var selectedCaptionTrack by remember { mutableStateOf<com.streamvault.app.domain.model.CaptionTrack?>(null) }
 
     val dimGray = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -178,6 +186,29 @@ fun PlayerScreen(
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
             )
+
+            if (captionText != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 48.dp)
+                        .align(Alignment.BottomCenter)
+                ) {
+                    Text(
+                        text = captionText ?: "",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .background(
+                                Color.Black.copy(alpha = 0.7f),
+                                RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .fillMaxWidth()
+                    )
+                }
+            }
 
             if (showControls) {
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -385,9 +416,12 @@ fun PlayerScreen(
                         }
 
                         Slider(
-                            value = uiState.position.toFloat().coerceIn(0f, uiState.duration.toFloat().coerceAtLeast(1f)),
-                            onValueChange = { },
-                            onValueChangeFinished = { viewModel.seekTo(uiState.position) },
+                            value = if (isDragging) dragPosition else uiState.position.toFloat().coerceIn(0f, uiState.duration.toFloat().coerceAtLeast(1f)),
+                            onValueChange = { dragPosition = it; isDragging = true },
+                            onValueChangeFinished = {
+                                viewModel.seekTo(dragPosition.toLong())
+                                isDragging = false
+                            },
                             valueRange = 0f..uiState.duration.toFloat().coerceAtLeast(1f),
                             colors = SliderDefaults.colors(
                                 thumbColor = Color.White,
@@ -524,13 +558,19 @@ fun PlayerScreen(
                                 .clickable { onChannelClick(video.channelId) }
                         )
                         Button(
-                            onClick = { },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            onClick = { viewModel.toggleSubscription() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (uiState.isSubscribed) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primary
+                            ),
                             shape = RoundedCornerShape(20.dp),
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                             modifier = Modifier.height(32.dp)
                         ) {
-                            Text("Subscribe", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                if (uiState.isSubscribed) "Subscribed" else "Subscribe",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
 
@@ -538,10 +578,38 @@ fun PlayerScreen(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        MiniAction(icon = Icons.Default.ThumbUp, label = "Like")
-                        MiniAction(icon = Icons.Default.Share, label = "Share")
-                        MiniAction(icon = Icons.Default.PlaylistAdd, label = "Save")
-                        MiniAction(icon = Icons.Default.Download, label = "Download")
+                        MiniAction(
+                            icon = Icons.Default.ThumbUp,
+                            label = "Like",
+                            onClick = {
+                                android.widget.Toast.makeText(context, "Liked!", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        MiniAction(
+                            icon = Icons.Default.Share,
+                            label = "Share",
+                            onClick = {
+                                val videoId = uiState.video?.id ?: return@MiniAction
+                                val shareIntent = android.content.Intent().apply {
+                                    action = android.content.Intent.ACTION_SEND
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_TEXT, "https://youtube.com/watch?v=$videoId")
+                                }
+                                context.startActivity(android.content.Intent.createChooser(shareIntent, "Share via"))
+                            }
+                        )
+                        MiniAction(
+                            icon = Icons.Default.PlaylistAdd,
+                            label = if (uiState.savedToWatchLater) "Saved" else "Save",
+                            onClick = { viewModel.saveToWatchLater() }
+                        )
+                        MiniAction(
+                            icon = Icons.Default.Download,
+                            label = "Download",
+                            onClick = {
+                                android.widget.Toast.makeText(context, "Downloads coming soon", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        )
                     }
 
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.surfaceVariant)
@@ -713,6 +781,8 @@ fun PlayerScreen(
         playerCaptionTracks.firstOrNull { it.id == cap.languageCode }
     }
 
+    val captionCoroutineScope = rememberCoroutineScope()
+
     CaptionSelectorSheet(
         visible = showCaptionSheet,
         captions = playerCaptionTracks,
@@ -721,6 +791,21 @@ fun PlayerScreen(
             val appTrack = if (track != null) {
                 uiState.captionTracks.firstOrNull { it.languageCode == track.id }
             } else null
+            selectedCaptionTrack = appTrack
+            if (appTrack == null) {
+                captionText = null
+            } else {
+                captionCoroutineScope.launch(Dispatchers.IO) {
+                    try {
+                        val url = java.net.URL(appTrack.baseUrl)
+                        val connection = url.openConnection()
+                        val text = connection.getInputStream().bufferedReader().readText()
+                        captionText = parseCaptions(text)
+                    } catch (e: Exception) {
+                        captionText = null
+                    }
+                }
+            }
             showCaptionSheet = false
         },
         onDismiss = { showCaptionSheet = false }
@@ -739,6 +824,29 @@ fun formatTime(ms: Long): String {
 
 fun formatCompactViewCount(text: String): String {
     return text.replace(Regex("\\(\\d+\\)"), "").trim()
+}
+
+fun parseCaptions(vttContent: String): String {
+    val lines = vttContent.lines()
+    val textLines = mutableListOf<String>()
+    var inBlock = false
+
+    for (line in lines) {
+        val trimmed = line.trim()
+        if (trimmed.startsWith("WEBVTT") || trimmed.isEmpty()) {
+            inBlock = false
+            continue
+        }
+        if (trimmed.contains("-->")) {
+            inBlock = true
+            continue
+        }
+        if (inBlock && trimmed.isNotEmpty() && !trimmed.all { it.isDigit() || it == ':' || it == '.' || it == ',' }) {
+            textLines.add(trimmed)
+            inBlock = false
+        }
+    }
+    return textLines.joinToString(" ")
 }
 
 @Composable

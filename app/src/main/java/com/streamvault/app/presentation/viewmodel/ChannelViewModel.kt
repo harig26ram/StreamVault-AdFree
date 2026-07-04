@@ -4,6 +4,8 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.domain.model.FeedItem
+import com.streamvault.app.domain.model.Video
+import com.streamvault.app.domain.usecase.AddToWatchLaterUseCase
 import com.streamvault.app.domain.usecase.GetChannelInfoUseCase
 import com.streamvault.app.domain.usecase.SubscribeUseCase
 import com.streamvault.app.domain.usecase.UnsubscribeUseCase
@@ -27,7 +29,8 @@ class ChannelViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val getChannelInfoUseCase: GetChannelInfoUseCase,
     private val subscribeUseCase: SubscribeUseCase,
-    private val unsubscribeUseCase: UnsubscribeUseCase
+    private val unsubscribeUseCase: UnsubscribeUseCase,
+    private val addToWatchLaterUseCase: AddToWatchLaterUseCase
 ) : ViewModel() {
 
     private val channelId: String = savedStateHandle["channelId"] ?: ""
@@ -74,6 +77,12 @@ class ChannelViewModel @Inject constructor(
         viewModelScope.launch {
             unsubscribeUseCase(channelId)
             _uiState.value = _uiState.value.copy(isSubscribed = false)
+        }
+    }
+
+    fun addToWatchLater(video: Video) {
+        viewModelScope.launch {
+            addToWatchLaterUseCase(video)
         }
     }
 }

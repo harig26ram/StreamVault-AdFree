@@ -3,7 +3,6 @@ package com.streamvault.app.di
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.streamvault.app.auth.AuthManager
-import com.streamvault.app.data.api.SponsorBlockApi
 import com.streamvault.app.data.api.YouTubeApiService
 import dagger.Module
 import dagger.Provides
@@ -71,22 +70,5 @@ object NetworkModule {
     @Singleton
     fun provideYouTubeApiService(@Named("youtube") retrofit: Retrofit): YouTubeApiService {
         return retrofit.create(YouTubeApiService::class.java)
-    }
-
-    @Provides
-    @Singleton
-    @Named("sponsorblock")
-    fun provideSponsorBlockRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl("https://sponsor.ajay.app/api/")
-            .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create(gson))
-            .build()
-    }
-
-    @Provides
-    @Singleton
-    fun provideSponsorBlockApi(@Named("sponsorblock") retrofit: Retrofit): SponsorBlockApi {
-        return retrofit.create(SponsorBlockApi::class.java)
     }
 }

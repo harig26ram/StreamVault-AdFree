@@ -222,7 +222,9 @@ data class Format(
     val audioQuality: String?,
     val approxDurationMs: String?,
     val audioSampleRate: String?,
-    val audioChannels: Int?
+    val audioChannels: Int?,
+    val signatureCipher: String?,
+    val cipher: String?
 )
 
 data class Range(

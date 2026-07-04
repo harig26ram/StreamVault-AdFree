@@ -5,8 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.streamvault.app.domain.model.FeedItem
 import com.streamvault.app.domain.model.Playlist
 import com.streamvault.app.domain.model.Video
+import com.streamvault.app.domain.usecase.ClearWatchLaterUseCase
 import com.streamvault.app.domain.usecase.GetHomeFeedUseCase
 import com.streamvault.app.domain.usecase.GetWatchHistoryUseCase
+import com.streamvault.app.domain.usecase.GetWatchLaterUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +18,7 @@ import javax.inject.Inject
 
 data class LibraryUiState(
     val watchHistory: List<Video> = emptyList(),
+    val watchLater: List<Video> = emptyList(),
     val playlists: List<Playlist> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null
@@ -24,6 +27,8 @@ data class LibraryUiState(
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val getWatchHistoryUseCase: GetWatchHistoryUseCase,
+    private val getWatchLaterUseCase: GetWatchLaterUseCase,
+    private val clearWatchLaterUseCase: ClearWatchLaterUseCase,
     private val getHomeFeedUseCase: GetHomeFeedUseCase
 ) : ViewModel() {
 
@@ -32,6 +37,7 @@ class LibraryViewModel @Inject constructor(
 
     init {
         loadWatchHistory()
+        loadWatchLater()
         loadPlaylists()
     }
 
@@ -40,6 +46,20 @@ class LibraryViewModel @Inject constructor(
             getWatchHistoryUseCase().collect { history ->
                 _uiState.value = _uiState.value.copy(watchHistory = history)
             }
+        }
+    }
+
+    private fun loadWatchLater() {
+        viewModelScope.launch {
+            getWatchLaterUseCase().collect { watchLater ->
+                _uiState.value = _uiState.value.copy(watchLater = watchLater)
+            }
+        }
+    }
+
+    fun clearWatchLater() {
+        viewModelScope.launch {
+            clearWatchLaterUseCase()
         }
     }
 

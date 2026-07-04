@@ -38,3 +38,13 @@
 
 # Coil
 -dontwarn coil.**
+
+# Gson models
+-keep class com.streamvault.app.data.model.** { *; }
+-keep class com.streamvault.app.domain.model.** { *; }
+
+# Retrofit interfaces
+-keep class com.streamvault.app.data.api.** { *; }
+
+# Room entities
+-keep class com.streamvault.app.data.local.* { *; }

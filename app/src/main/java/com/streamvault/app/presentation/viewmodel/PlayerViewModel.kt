@@ -9,12 +9,16 @@ import com.streamvault.app.domain.model.CaptionTrack
 import com.streamvault.app.domain.model.Comment
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.model.VideoFormat
+import com.streamvault.app.data.local.VideoDao
+import com.streamvault.app.data.local.WatchLaterEntity
 import com.streamvault.app.domain.usecase.AddToWatchHistoryUseCase
 import com.streamvault.app.domain.usecase.GetCaptionTracksUseCase
 import com.streamvault.app.domain.usecase.GetCommentsUseCase
 import com.streamvault.app.domain.usecase.GetRelatedVideosUseCase
 import com.streamvault.app.domain.usecase.GetVideoFormatsUseCase
 import com.streamvault.app.domain.usecase.GetVideoInfoUseCase
+import com.streamvault.app.domain.usecase.SubscribeUseCase
+import com.streamvault.app.domain.usecase.UnsubscribeUseCase
 import com.streamvault.player.core.PlayerConfig
 import com.streamvault.player.core.PlayerEngine
 import com.streamvault.player.core.PlayerState
@@ -56,7 +60,9 @@ data class PlayerUiState(
     val sponsorSegments: List<SponsorSegment> = emptyList(),
     val isAudioOnly: Boolean = false,
     val showVolumeIndicator: Boolean = false,
-    val showBrightnessIndicator: Boolean = false
+    val showBrightnessIndicator: Boolean = false,
+    val isSubscribed: Boolean = false,
+    val savedToWatchLater: Boolean = false
 )
 
 @HiltViewModel
@@ -68,7 +74,10 @@ class PlayerViewModel @Inject constructor(
     private val getCommentsUseCase: GetCommentsUseCase,
     private val settingsManager: SettingsManager,
     private val getRelatedVideosUseCase: GetRelatedVideosUseCase,
-    private val addToWatchHistoryUseCase: AddToWatchHistoryUseCase
+    private val addToWatchHistoryUseCase: AddToWatchHistoryUseCase,
+    private val subscribeUseCase: SubscribeUseCase,
+    private val unsubscribeUseCase: UnsubscribeUseCase,
+    private val videoDao: VideoDao
 ) : ViewModel() {
 
     val engine = PlayerEngine(PlayerConfig())
@@ -251,6 +260,33 @@ class PlayerViewModel @Inject constructor(
         val nextVideo = related.firstOrNull { it.id != currentId }
         if (nextVideo != null) {
             loadVideo(nextVideo.id)
+        }
+    }
+
+    fun toggleSubscription() {
+        val channel = uiState.value.video ?: return
+        viewModelScope.launch {
+            if (uiState.value.isSubscribed) {
+                unsubscribeUseCase(channel.channelId)
+            } else {
+                subscribeUseCase(channel.channelId)
+            }
+            _uiState.update { it.copy(isSubscribed = !it.isSubscribed) }
+        }
+    }
+
+    fun saveToWatchLater() {
+        val video = uiState.value.video ?: return
+        viewModelScope.launch {
+            videoDao.insertWatchLater(
+                WatchLaterEntity(
+                    videoId = video.id,
+                    title = video.title,
+                    channelName = video.channelName,
+                    thumbnailUrl = video.thumbnailUrl
+                )
+            )
+            _uiState.update { it.copy(savedToWatchLater = true) }
         }
     }
 

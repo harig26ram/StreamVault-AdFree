@@ -1,5 +1,7 @@
 package com.streamvault.app.presentation.ui.screen
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -11,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -28,6 +31,7 @@ fun ChannelScreen(
     val uiState by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("Videos", "Shorts", "Live", "Playlists")
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -43,7 +47,9 @@ fun ChannelScreen(
                 }
             },
             actions = {
-                IconButton(onClick = { }) {
+                IconButton(onClick = {
+                    Toast.makeText(context, "Notifications coming soon", Toast.LENGTH_SHORT).show()
+                }) {
                     Icon(
                         imageVector = Icons.Default.Notifications,
                         contentDescription = "Notifications"
@@ -103,7 +109,9 @@ fun ChannelScreen(
                         Text(if (uiState.isSubscribed) "Subscribed" else "Subscribe")
                     }
 
-                    OutlinedButton(onClick = { }) {
+                    OutlinedButton(onClick = {
+                        Toast.makeText(context, "Channel memberships coming soon", Toast.LENGTH_SHORT).show()
+                    }) {
                         Text("Join")
                     }
                 }
@@ -121,41 +129,65 @@ fun ChannelScreen(
 
             val filteredVideos = when (selectedTab) {
                 0 -> uiState.videos.filterIsInstance<FeedItem.Video>()
-                1 -> uiState.videos.filterIsInstance<FeedItem.Video>().filter { it.video.isShort }
+                1 -> uiState.videos.filterIsInstance<FeedItem.Video>().filter {
+                    it.video.isShort || parseDurationSeconds(it.video.duration) in 1..59
+                }
                 2 -> uiState.videos.filterIsInstance<FeedItem.Video>().filter { it.video.isLive }
                 else -> emptyList()
             }
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(filteredVideos.size) { index ->
-                    val feedItem = filteredVideos[index]
-                    when (feedItem) {
-                        is FeedItem.Video -> {
-                            com.streamvault.app.presentation.ui.components.VideoCard(
-                                video = feedItem.video,
-                                onClick = { onVideoClick(feedItem.video.id) }
-                            )
-                        }
-                        else -> {}
-                    }
+            if (selectedTab == 3) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No playlists available",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredVideos.size) { index ->
+                        val feedItem = filteredVideos[index]
+                        when (feedItem) {
+                            is FeedItem.Video -> {
+                                com.streamvault.app.presentation.ui.components.VideoCard(
+                                    video = feedItem.video,
+                                    onClick = { onVideoClick(feedItem.video.id) },
+                                    onSaveToWatchLater = { video -> viewModel.addToWatchLater(video) },
+                                    onShare = { video ->
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, video.watchUrl)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share via"))
+                                    }
+                                )
+                            }
+                            else -> {}
+                        }
+                    }
 
-                if (filteredVideos.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "No ${tabs[selectedTab].lowercase()} found",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                    if (filteredVideos.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "No ${tabs[selectedTab].lowercase()} found",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -168,5 +200,19 @@ fun ChannelScreen(
                 CircularProgressIndicator()
             }
         }
+    }
+}
+
+private fun parseDurationSeconds(duration: String): Int {
+    return try {
+        val parts = duration.split(":")
+        when (parts.size) {
+            3 -> parts[0].toInt() * 3600 + parts[1].toInt() * 60 + parts[2].toInt()
+            2 -> parts[0].toInt() * 60 + parts[1].toInt()
+            1 -> parts[0].toInt()
+            else -> 0
+        }
+    } catch (_: Exception) {
+        0
     }
 }

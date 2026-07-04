@@ -1,5 +1,7 @@
 package com.streamvault.app.presentation.ui.components
 
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -12,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -22,9 +25,12 @@ import com.streamvault.app.domain.model.Video
 fun VideoCard(
     video: Video,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onSaveToWatchLater: (Video) -> Unit = {},
+    onShare: (Video) -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Card(
         modifier = modifier
@@ -133,15 +139,24 @@ fun VideoCard(
                     ) {
                         DropdownMenuItem(
                             text = { Text("Save to Watch Later") },
-                            onClick = { showMenu = false }
+                            onClick = {
+                                showMenu = false
+                                onSaveToWatchLater(video)
+                            }
                         )
                         DropdownMenuItem(
                             text = { Text("Save to Playlist") },
-                            onClick = { showMenu = false }
+                            onClick = {
+                                showMenu = false
+                                Toast.makeText(context, "Playlists coming soon", Toast.LENGTH_SHORT).show()
+                            }
                         )
                         DropdownMenuItem(
                             text = { Text("Share") },
-                            onClick = { showMenu = false }
+                            onClick = {
+                                showMenu = false
+                                onShare(video)
+                            }
                         )
                     }
                 }
@@ -149,4 +164,3 @@ fun VideoCard(
         }
     }
 }
-

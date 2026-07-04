@@ -26,6 +26,9 @@ interface VideoRepository {
     fun getWatchHistory(): Flow<List<Video>>
     suspend fun addToWatchHistory(video: Video)
     suspend fun clearWatchHistory()
+    fun getWatchLater(): Flow<List<Video>>
+    suspend fun addToWatchLater(video: Video)
+    suspend fun clearWatchLater()
     fun getSubscriptionsList(): Flow<List<Channel>>
     suspend fun subscribeToChannel(channelId: String)
     suspend fun unsubscribeFromChannel(channelId: String)
