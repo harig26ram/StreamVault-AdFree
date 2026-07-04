@@ -6,21 +6,28 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.media.MediaMetadata
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.os.Binder
 import android.os.IBinder
-import android.support.v4.media.MediaMetadataCompat
-import android.support.v4.media.session.MediaSessionCompat
-import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
-import com.google.android.exoplayer2.ExoPlayer
-import com.google.android.exoplayer2.MediaItem
+import com.streamvault.player.core.PlayerConfig
+import com.streamvault.player.core.PlayerEngine
+import com.streamvault.player.core.PlayerState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class PlaybackService : Service() {
 
     private val binder = LocalBinder()
-    var exoPlayer: ExoPlayer? = null
-        private set
-    private var mediaSession: MediaSessionCompat? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var engine: PlayerEngine? = null
+    private var mediaSession: MediaSession? = null
 
     inner class LocalBinder : Binder() {
         fun getService(): PlaybackService = this@PlaybackService
@@ -31,39 +38,43 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        exoPlayer = ExoPlayer.Builder(this).build()
-        mediaSession = MediaSessionCompat(this, "StreamVault").apply {
-            setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() { exoPlayer?.play() }
-                override fun onPause() { exoPlayer?.pause() }
-                override fun onSeekTo(pos: Long) { exoPlayer?.seekTo(pos) }
+        engine = PlayerEngine(PlayerConfig())
+        mediaSession = MediaSession(this, "StreamVault").apply {
+            setCallback(object : MediaSession.Callback() {
+                override fun onPlay() { engine?.play() }
+                override fun onPause() { engine?.pause() }
+                override fun onSeekTo(pos: Long) { engine?.seekTo(pos) }
             })
+            isActive = true
         }
     }
 
     fun play(url: String, title: String, channelName: String) {
-        val player = exoPlayer ?: return
-        val mediaItem = MediaItem.fromUri(url)
-        player.setMediaItem(mediaItem)
-        player.prepare()
-        player.playWhenReady = true
+        val player = engine ?: return
+        player.loadStreams(url, url, url)
+
+        serviceScope.launch {
+            player.state.collect { state ->
+                if (state is PlayerState.Playing || state is PlayerState.Buffering) {
+                    val pos = player.position.first()
+                    mediaSession?.setPlaybackState(
+                        PlaybackState.Builder()
+                            .setState(PlaybackState.STATE_PLAYING, pos, 1f)
+                            .setActions(
+                                PlaybackState.ACTION_PLAY or
+                                PlaybackState.ACTION_PAUSE or
+                                PlaybackState.ACTION_SEEK_TO
+                            )
+                            .build()
+                    )
+                }
+            }
+        }
 
         mediaSession?.setMetadata(
-            MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
-                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, channelName)
-                .putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ARTIST, channelName)
-                .build()
-        )
-
-        mediaSession?.setPlaybackState(
-            PlaybackStateCompat.Builder()
-                .setState(PlaybackStateCompat.STATE_PLAYING, player.currentPosition, 1f)
-                .setActions(
-                    PlaybackStateCompat.ACTION_PLAY or
-                    PlaybackStateCompat.ACTION_PAUSE or
-                    PlaybackStateCompat.ACTION_SEEK_TO
-                )
+            MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, channelName)
                 .build()
         )
 
@@ -71,7 +82,8 @@ class PlaybackService : Service() {
     }
 
     fun stop() {
-        exoPlayer?.stop()
+        engine?.stop()
+        engine?.release()
         mediaSession?.isActive = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -107,10 +119,11 @@ class PlaybackService : Service() {
     }
 
     override fun onDestroy() {
-        exoPlayer?.release()
-        exoPlayer = null
+        engine?.release()
+        engine = null
         mediaSession?.release()
         mediaSession = null
+        serviceScope.cancel()
         super.onDestroy()
     }
 

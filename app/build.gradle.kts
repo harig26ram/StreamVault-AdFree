@@ -63,7 +63,6 @@ android {
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
     val hiltVersion = "2.50"
-    val exoPlayerVersion = "2.19.1"
     val roomVersion = "2.6.1"
     val retrofitVersion = "2.9.0"
     val okhttpVersion = "4.12.0"
@@ -102,11 +101,11 @@ dependencies {
     // Gson
     implementation("com.google.code.gson:gson:2.10.1")
 
-    // ExoPlayer
-    implementation("com.google.android.exoplayer:exoplayer-core:$exoPlayerVersion")
-    implementation("com.google.android.exoplayer:exoplayer-dash:$exoPlayerVersion")
-    implementation("com.google.android.exoplayer:exoplayer-hls:$exoPlayerVersion")
-    implementation("com.google.android.exoplayer:exoplayer-ui:$exoPlayerVersion")
+    // Player modules (custom MediaCodec pipeline)
+    implementation(project(":player:core"))
+    implementation(project(":player:youtube"))
+    implementation(project(":player:ui"))
+    implementation(project(":player:sponsorblock"))
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:$kotlinxCoroutinesVersion")

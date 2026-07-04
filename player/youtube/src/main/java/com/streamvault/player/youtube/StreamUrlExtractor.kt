@@ -1,0 +1,261 @@
+package com.streamvault.player.youtube
+
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+
+data class DecryptedStreamFormat(
+    val itag: Int,
+    val url: String,
+    val mimeType: String,
+    val width: Int?,
+    val height: Int?,
+    val bitrate: Int?,
+    val contentLength: Long?,
+    val audioChannels: Int?,
+    val audioSampleRate: Int?,
+    val fps: Int?,
+    val approxDurationMs: String?,
+    val initRange: String?,
+    val indexRange: String?,
+    val highReplication: Boolean?,
+    val type: StreamType
+)
+
+enum class StreamType { PROGRESSIVE, VIDEO_ONLY, AUDIO_ONLY }
+
+class StreamUrlExtractor(
+    private val cipherDecryptor: CipherDecryptor = CipherDecryptor(),
+    private val nParamDecryptor: NParamDecryptor = NParamDecryptor()
+) {
+
+    fun extract(
+        responseJson: String,
+        cipherOperations: List<CipherDecryptor.CipherOp>,
+        nTransformOp: NParamDecryptor.NTransformOp
+    ): List<DecryptedStreamFormat> {
+        val gson = Gson()
+        val json = gson.fromJson(responseJson, JsonObject::class.java)
+        val streamingData = json.getAsJsonObject("streamingData") ?: return emptyList()
+
+        val allFormats = mutableListOf<DecryptedStreamFormat>()
+        val formats = streamingData.getAsJsonArray("formats")
+        val adaptiveFormats = streamingData.getAsJsonArray("adaptiveFormats")
+
+        if (formats != null) {
+            for (element in formats) {
+                val fmt = element.asJsonObject
+                decryptFormat(fmt, cipherOperations, nTransformOp)?.let { allFormats.add(it) }
+            }
+        }
+        if (adaptiveFormats != null) {
+            for (element in adaptiveFormats) {
+                val fmt = element.asJsonObject
+                decryptFormat(fmt, cipherOperations, nTransformOp)?.let { allFormats.add(it) }
+            }
+        }
+
+        return allFormats
+    }
+
+    fun extract(
+        streamingData: YouTubeStreamingData,
+        cipherOperations: List<CipherDecryptor.CipherOp>,
+        nTransformOp: NParamDecryptor.NTransformOp
+    ): List<DecryptedStreamFormat> {
+        val allFormats = mutableListOf<DecryptedStreamFormat>()
+
+        streamingData.formats?.forEach { fmt ->
+            decryptFormat(fmt, cipherOperations, nTransformOp)?.let { allFormats.add(it) }
+        }
+        streamingData.adaptiveFormats?.forEach { fmt ->
+            decryptFormat(fmt, cipherOperations, nTransformOp)?.let { allFormats.add(it) }
+        }
+
+        return allFormats
+    }
+
+    fun extractFromResponse(
+        response: YouTubePlayerResponse,
+        cipherOperations: List<CipherDecryptor.CipherOp>,
+        nTransformOp: NParamDecryptor.NTransformOp
+    ): List<DecryptedStreamFormat> {
+        val sd = response.streamingData ?: return emptyList()
+        return extract(sd, cipherOperations, nTransformOp)
+    }
+
+    fun getSortedFormats(
+        formats: List<DecryptedStreamFormat>
+    ): Map<StreamType, List<DecryptedStreamFormat>> {
+        val grouped = formats.groupBy { it.type }
+        val result = mutableMapOf<StreamType, List<DecryptedStreamFormat>>()
+
+        grouped.forEach { (type, list) ->
+            result[type] = when (type) {
+                StreamType.PROGRESSIVE -> list.sortedByDescending { it.height ?: 0 }
+                StreamType.VIDEO_ONLY -> list.sortedByDescending { it.height ?: 0 }
+                StreamType.AUDIO_ONLY -> list.sortedByDescending { it.bitrate ?: 0 }
+            }
+        }
+
+        return result
+    }
+
+    private fun decryptFormat(
+        json: JsonObject,
+        cipherOps: List<CipherDecryptor.CipherOp>,
+        nTransformOp: NParamDecryptor.NTransformOp
+    ): DecryptedStreamFormat? {
+        val itag = json.get("itag")?.asInt ?: return null
+        val mimeType = json.get("mimeType")?.asString ?: return null
+
+        val url = resolveUrl(json, cipherOps) ?: return null
+        val finalUrl = resolveNParam(url, nTransformOp)
+
+        val type = determineStreamType(itag, mimeType)
+
+        return DecryptedStreamFormat(
+            itag = itag,
+            url = finalUrl,
+            mimeType = mimeType,
+            width = json.get("width")?.asInt,
+            height = json.get("height")?.asInt,
+            bitrate = json.get("bitrate")?.asInt,
+            contentLength = json.get("contentLength")?.asString?.toLongOrNull(),
+            audioChannels = json.get("audioChannels")?.asInt,
+            audioSampleRate = json.get("audioSampleRate")?.asString?.toIntOrNull(),
+            fps = json.get("fps")?.asInt,
+            approxDurationMs = json.get("approxDurationMs")?.asString,
+            initRange = json.getAsJsonObject("initRange")?.get("start")?.asString,
+            indexRange = json.getAsJsonObject("indexRange")?.get("start")?.asString,
+            highReplication = json.get("highReplication")?.asBoolean,
+            type = type
+        )
+    }
+
+    private fun decryptFormat(
+        fmt: YouTubeFormat,
+        cipherOps: List<CipherDecryptor.CipherOp>,
+        nTransformOp: NParamDecryptor.NTransformOp
+    ): DecryptedStreamFormat? {
+        val itag = fmt.itag ?: return null
+        val mimeType = fmt.mimeType ?: return null
+
+        val url = resolveUrl(fmt, cipherOps) ?: return null
+        val finalUrl = resolveNParam(url, nTransformOp)
+
+        val type = determineStreamType(itag, mimeType)
+
+        return DecryptedStreamFormat(
+            itag = itag,
+            url = finalUrl,
+            mimeType = mimeType,
+            width = fmt.width,
+            height = fmt.height,
+            bitrate = fmt.bitrate,
+            contentLength = fmt.contentLength?.toLongOrNull(),
+            audioChannels = fmt.audioChannels,
+            audioSampleRate = fmt.audioSampleRate?.toIntOrNull(),
+            fps = fmt.fps,
+            approxDurationMs = fmt.approxDurationMs,
+            initRange = fmt.rangeInit?.start,
+            indexRange = fmt.rangeIndex?.start,
+            highReplication = fmt.highReplication,
+            type = type
+        )
+    }
+
+    private fun resolveUrl(json: JsonObject, cipherOps: List<CipherDecryptor.CipherOp>): String? {
+        val directUrl = json.get("url")?.asString
+        if (directUrl != null && directUrl.isNotBlank()) return directUrl
+
+        val cipherStr = json.get("signatureCipher")?.asString
+            ?: json.get("cipher")?.asString
+
+        if (cipherStr == null || cipherStr.isBlank()) return null
+
+        return decryptCipherUrl(cipherStr, cipherOps)
+    }
+
+    private fun resolveUrl(fmt: YouTubeFormat, cipherOps: List<CipherDecryptor.CipherOp>): String? {
+        val directUrl = fmt.url
+        if (directUrl != null && directUrl.isNotBlank()) return directUrl
+
+        val cipherStr = fmt.signatureCipher ?: fmt.cipher
+        if (cipherStr == null || cipherStr.isBlank()) return null
+
+        return decryptCipherUrl(cipherStr, cipherOps)
+    }
+
+    private fun decryptCipherUrl(cipherStr: String, cipherOps: List<CipherDecryptor.CipherOp>): String {
+        val params = parseQueryString(cipherStr)
+        val url = params["url"] ?: return cipherStr
+        val signature = params["s"] ?: return url
+        val sp = params["sp"] ?: "sig"
+
+        val decryptedSig = cipherDecryptor.decryptDirect(signature, cipherOps)
+
+        val separator = if (url.contains("?")) "&" else "?"
+        return "$url$separator$sp=$decryptedSig"
+    }
+
+    private fun resolveNParam(url: String, nTransformOp: NParamDecryptor.NTransformOp): String {
+        val uri = java.net.URI(url)
+        val query = uri.query ?: return url
+        val params = parseQueryString(query)
+        val nParam = params["n"] ?: return url
+        if (nParam.isBlank()) return url
+
+        val transformed = nParamDecryptor.decryptNParamDirect(nParam, nTransformOp)
+        return url.replace("n=$nParam", "n=$transformed")
+    }
+
+    private fun parseQueryString(query: String): Map<String, String> {
+        val params = mutableMapOf<String, String>()
+        if (query.isBlank()) return params
+        val pairs = query.split("&")
+        for (pair in pairs) {
+            val idx = pair.indexOf("=")
+            if (idx > 0) {
+                val key = pair.substring(0, idx)
+                val value = pair.substring(idx + 1)
+                params[java.net.URLDecoder.decode(key, "UTF-8")] =
+                    java.net.URLDecoder.decode(value, "UTF-8")
+            }
+        }
+        return params
+    }
+
+    private fun determineStreamType(itag: Int, mimeType: String): StreamType {
+        val isVideo = mimeType.startsWith("video/")
+        val isAudio = mimeType.startsWith("audio/")
+
+        if (isVideo && isAudio) return StreamType.PROGRESSIVE
+
+        if (isVideo) {
+            val info = ItagInfo.get(itag)
+            if (info != null && !info.isDash) return StreamType.PROGRESSIVE
+            return StreamType.VIDEO_ONLY
+        }
+
+        if (isAudio) return StreamType.AUDIO_ONLY
+
+        return StreamType.AUDIO_ONLY
+    }
+
+    companion object {
+        fun buildSortedFormatMap(formats: List<DecryptedStreamFormat>): Map<StreamType, List<DecryptedStreamFormat>> {
+            val grouped = formats.groupBy { it.type }
+            val result = mutableMapOf<StreamType, List<DecryptedStreamFormat>>()
+
+            grouped.forEach { (type, list) ->
+                result[type] = when (type) {
+                    StreamType.PROGRESSIVE -> list.sortedByDescending { it.height ?: 0 }
+                    StreamType.VIDEO_ONLY -> list.sortedByDescending { it.height ?: 0 }
+                    StreamType.AUDIO_ONLY -> list.sortedByDescending { it.bitrate ?: 0 }
+                }
+            }
+
+            return result
+        }
+    }
+}

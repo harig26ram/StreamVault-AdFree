@@ -310,7 +310,7 @@ fun SettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Version 4.0.0")
                     Text("Ad-free YouTube streaming with custom UI")
-                    Text("Built with YouTube InnerTube API + ExoPlayer")
+                    Text("Built with YouTube InnerTube API + custom MediaCodec player")
                     Text("Features:", fontWeight = FontWeight.Medium)
                     Text("  \u2022 Ad-free video streaming", fontSize = 13.sp)
                     Text("  \u2022 Background playback", fontSize = 13.sp)

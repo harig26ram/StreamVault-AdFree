@@ -16,3 +16,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "StreamVault"
 include(":app")
+include(":player:core")
+include(":player:youtube")
+include(":player:ui")
+include(":player:sponsorblock")
