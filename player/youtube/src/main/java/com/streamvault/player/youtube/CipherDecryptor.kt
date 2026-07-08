@@ -50,16 +50,19 @@ class CipherDecryptor {
                 clean.matches(Regex("""\w+\.reverse\(\)""")) ->
                     ops.add(CipherOp.Reverse)
                 clean.matches(Regex("""\w+\.splice\(\s*0\s*,\s*(\d+)\s*\)""")) -> {
-                    val n = Regex("""\w+\.splice\(\s*0\s*,\s*(\d+)\s*\)""").find(clean)!!.groupValues[1].toInt()
-                    ops.add(CipherOp.SpliceDelete(0, n))
+                    Regex("""\w+\.splice\(\s*0\s*,\s*(\d+)\s*\)""").find(clean)?.let { match ->
+                        ops.add(CipherOp.SpliceDelete(0, match.groupValues[1].toInt()))
+                    }
                 }
                 clean.matches(Regex("""\w+\.splice\(\s*(\d+)\s*\)""")) -> {
-                    val n = Regex("""\w+\.splice\(\s*(\d+)\s*\)""").find(clean)!!.groupValues[1].toInt()
-                    ops.add(CipherOp.Splice(n))
+                    Regex("""\w+\.splice\(\s*(\d+)\s*\)""").find(clean)?.let { match ->
+                        ops.add(CipherOp.Splice(match.groupValues[1].toInt()))
+                    }
                 }
                 clean.matches(Regex("""\w+\.slice\(\s*(\d+)\s*\)""")) -> {
-                    val n = Regex("""\w+\.slice\(\s*(\d+)\s*\)""").find(clean)!!.groupValues[1].toInt()
-                    ops.add(CipherOp.Slice(n))
+                    Regex("""\w+\.slice\(\s*(\d+)\s*\)""").find(clean)?.let { match ->
+                        ops.add(CipherOp.Slice(match.groupValues[1].toInt()))
+                    }
                 }
                 clean.matches(Regex("""var\s+\w+\s*=\s*\w+\[(\d+)];\s*\w+\[\d+]=\w+\[(\d+)%\w+\.length];\s*\w+\[\2]=\w+""".replace("%", "\\%").replace(".", "\\."))) -> {
                     val match = Regex("""var\s+\w+\s*=\s*\w+\[(\d+)];\s*\w+\[\d+]=\w+\[(\d+)%\w+\.length];\s*\w+\[\2]=\w+""".replace("%", "\\%").replace(".", "\\.")).find(clean)
@@ -81,16 +84,14 @@ class CipherDecryptor {
                 clean.matches(Regex("""\w+\s*=\s*\w+\[["']reverse["']]\s*\(\s*\w+\)""")) ->
                     ops.add(CipherOp.Reverse)
                 clean.matches(Regex("""\w+\s*=\s*\w+\[["']splice["']]\s*\(\s*\w+\s*,\s*(\d+)\)""")) -> {
-                    val n = Regex("""\w+\s*=\s*\w+\[["']splice["']]\s*\(\s*\w+\s*,\s*(\d+)\)""").find(clean)!!.groupValues[1].toInt()
-                    ops.add(CipherOp.SpliceDelete(0, n))
-                }
-                clean.matches(Regex("""\w+\s*=\s*\w+\[["']splice["']]\s*\(\s*\w+\s*,\s*(\d+)\)""")) -> {
-                    val match = Regex("""\w+\s*=\s*\w+\[["']splice["']]\s*\(\s*\w+\s*,\s*(\d+)\)""").find(clean)
-                    if (match != null) ops.add(CipherOp.SpliceDelete(0, match.groupValues[1].toInt()))
+                    Regex("""\w+\s*=\s*\w+\[["']splice["']]\s*\(\s*\w+\s*,\s*(\d+)\)""").find(clean)?.let { match ->
+                        ops.add(CipherOp.SpliceDelete(0, match.groupValues[1].toInt()))
+                    }
                 }
                 clean.matches(Regex("""\w+\s*=\s*\w+\[["']slice["']]\s*\(\s*\w+\s*,\s*(\d+)\)""")) -> {
-                    val n = Regex("""\w+\s*=\s*\w+\[["']slice["']]\s*\(\s*\w+\s*,\s*(\d+)\)""").find(clean)!!.groupValues[1].toInt()
-                    ops.add(CipherOp.Slice(n))
+                    Regex("""\w+\s*=\s*\w+\[["']slice["']]\s*\(\s*\w+\s*,\s*(\d+)\)""").find(clean)?.let { match ->
+                        ops.add(CipherOp.Slice(match.groupValues[1].toInt()))
+                    }
                 }
             }
         }

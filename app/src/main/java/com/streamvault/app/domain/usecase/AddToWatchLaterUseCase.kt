@@ -4,10 +4,10 @@ import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.repository.VideoRepository
 import javax.inject.Inject
 
-class AddToWatchLaterUseCase @Inject constructor(
+open class AddToWatchLaterUseCase @Inject constructor(
     private val repository: VideoRepository
 ) {
-    suspend operator fun invoke(video: Video) {
+    open suspend operator fun invoke(video: Video) {
         repository.addToWatchLater(video)
     }
 }

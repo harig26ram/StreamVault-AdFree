@@ -1,16 +1,21 @@
 package com.streamvault.app.presentation.viewmodel
 
+import android.content.Context
+import android.content.Intent
+import android.util.Log
 import android.view.Surface
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.data.local.SettingsManager
+import com.streamvault.app.data.local.VideoDao
+import com.streamvault.app.data.local.WatchHistoryEntity
+import com.streamvault.app.data.local.WatchLaterEntity
+import com.streamvault.app.data.download.DownloadManager
 import com.streamvault.app.domain.model.CaptionTrack
 import com.streamvault.app.domain.model.Comment
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.model.VideoFormat
-import com.streamvault.app.data.local.VideoDao
-import com.streamvault.app.data.local.WatchLaterEntity
 import com.streamvault.app.domain.usecase.AddToWatchHistoryUseCase
 import com.streamvault.app.domain.usecase.GetCaptionTracksUseCase
 import com.streamvault.app.domain.usecase.GetCommentsUseCase
@@ -19,12 +24,16 @@ import com.streamvault.app.domain.usecase.GetVideoFormatsUseCase
 import com.streamvault.app.domain.usecase.GetVideoInfoUseCase
 import com.streamvault.app.domain.usecase.SubscribeUseCase
 import com.streamvault.app.domain.usecase.UnsubscribeUseCase
+import com.streamvault.app.presentation.ui.components.MiniPlayerManager
+import com.streamvault.app.service.PlaybackService
+import com.streamvault.player.core.EqualizerManager
 import com.streamvault.player.core.PlayerConfig
 import com.streamvault.player.core.PlayerEngine
 import com.streamvault.player.core.PlayerState
 import com.streamvault.player.sponsorblock.SponsorBlockManager
 import com.streamvault.player.sponsorblock.data.SponsorSegment
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -36,6 +45,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+data class QueueItem(
+    val videoId: String,
+    val title: String = "",
+    val channelName: String = "",
+    val thumbnailUrl: String = ""
+)
+
+enum class RepeatMode { OFF, ONE, ALL }
 
 data class PlayerUiState(
     val video: Video? = null,
@@ -62,7 +80,22 @@ data class PlayerUiState(
     val showVolumeIndicator: Boolean = false,
     val showBrightnessIndicator: Boolean = false,
     val isSubscribed: Boolean = false,
-    val savedToWatchLater: Boolean = false
+    val savedToWatchLater: Boolean = false,
+    val isPipMode: Boolean = false,
+    val showResumeDialog: Boolean = false,
+    val savedPositionMs: Long = 0,
+    val isMiniPlayer: Boolean = false,
+    val queue: List<QueueItem> = emptyList(),
+    val queueIndex: Int = -1,
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: RepeatMode = RepeatMode.OFF,
+    val showQueueSheet: Boolean = false,
+    val equalizerEnabled: Boolean = false,
+    val isMiniPlayerEnabled: Boolean = true,
+    val isDownloaded: Boolean = false,
+    val isDownloading: Boolean = false,
+    val downloadProgress: Int = 0,
+    val isPlayingOffline: Boolean = false
 )
 
 @HiltViewModel
@@ -77,10 +110,17 @@ class PlayerViewModel @Inject constructor(
     private val addToWatchHistoryUseCase: AddToWatchHistoryUseCase,
     private val subscribeUseCase: SubscribeUseCase,
     private val unsubscribeUseCase: UnsubscribeUseCase,
-    private val videoDao: VideoDao
+    private val videoDao: VideoDao,
+    private val downloadManager: DownloadManager,
+    private val miniPlayerManager: MiniPlayerManager,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
-    val engine = PlayerEngine(PlayerConfig())
+    private val engineConfig = PlayerConfig(
+        skipSilenceEnabled = settingsManager.skipSilence,
+        equalizerEnabled = settingsManager.equalizerEnabled
+    )
+    val engine = PlayerEngine(engineConfig)
     private val sponsorBlockManager = SponsorBlockManager()
 
     val sponsorBlockEnabled: Boolean get() = settingsManager.sponsorBlock
@@ -95,10 +135,24 @@ class PlayerViewModel @Inject constructor(
 
     private var loadVideoJob: Job? = null
     private var sponsorCheckJob: Job? = null
+    private var positionSaveJob: Job? = null
+    private var surfaceReady = false
+    private var pendingAudioUrl: String? = null
+    private var pendingVideoUrl: String? = null
+    private var pendingProgressiveUrl: String? = null
+
+    companion object {
+        private const val TAG = "PlayerVM"
+    }
 
     init {
+        _uiState.update { it.copy(isMiniPlayerEnabled = settingsManager.miniPlayer) }
         collectEngineState()
-        if (videoId.isNotBlank()) loadVideo(videoId)
+        Log.d(TAG, "init: videoId=$videoId")
+        if (videoId.isNotBlank()) {
+            loadVideo(videoId)
+            checkDownloadStatus()
+        }
     }
 
     private fun collectEngineState() {
@@ -125,10 +179,35 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun setSurface(surface: Surface?) {
-        surface?.let { engine.setSurface(it) }
+        if (surface == null) {
+            Log.d(TAG, "setSurface: null surface received")
+            engine.setSurface(null)
+            surfaceReady = false
+            pendingProgressiveUrl = null
+            pendingAudioUrl = null
+            pendingVideoUrl = null
+            return
+        }
+        Log.d(TAG, "setSurface: surface set, surfaceReady=$surfaceReady")
+        engine.setSurface(surface)
+        surfaceReady = true
+        val p = pendingProgressiveUrl
+        val a = pendingAudioUrl
+        val v = pendingVideoUrl
+        if (p != null) {
+            pendingProgressiveUrl = null
+            engine.loadStreams(null, null, p)
+            autoPlay()
+        } else if (a != null || v != null) {
+            pendingAudioUrl = null
+            pendingVideoUrl = null
+            engine.loadStreams(a, v)
+            autoPlay()
+        }
     }
 
     fun loadVideo(id: String = videoId) {
+        Log.d(TAG, "loadVideo: id=$id")
         loadVideoJob?.cancel()
         engine.stop()
         _currentVideoId.value = id
@@ -154,23 +233,35 @@ class PlayerViewModel @Inject constructor(
 
                     infoDeferred.await().fold(
                         onSuccess = { video ->
+                            Log.d(TAG, "loadVideo: info success, title=${video.title}")
                             _uiState.update { it.copy(video = video) }
                             addToWatchHistoryUseCase(video)
+                            checkSavedPosition(id)
                         },
                         onFailure = { e ->
+                            Log.e(TAG, "loadVideo: info FAILED: ${e.message}", e)
                             _uiState.update { it.copy(error = e.message) }
                         }
                     )
 
                     relatedDeferred.await().fold(
                         onSuccess = { videos ->
+                            Log.d(TAG, "loadVideo: related success, count=${videos.size}")
                             _uiState.update { it.copy(relatedVideos = videos) }
+                            addToQueueFromRelated(videos)
                         },
-                        onFailure = { }
+                        onFailure = { e ->
+                            Log.w(TAG, "loadVideo: related FAILED: ${e.message}")
+                        }
                     )
                 }
 
-                loadFormats(id)
+                val isDownloaded = downloadManager.isDownloaded(id)
+                if (isDownloaded) {
+                    playOffline()
+                } else {
+                    loadFormats(id)
+                }
                 loadCaptions(id)
                 loadComments(id)
 
@@ -181,6 +272,7 @@ class PlayerViewModel @Inject constructor(
 
                 _uiState.update { it.copy(isLoading = false) }
             } catch (e: Exception) {
+                Log.e(TAG, "loadVideo: exception", e)
                 _uiState.update {
                     it.copy(error = "Failed to load video: ${e.message}", isLoading = false)
                 }
@@ -188,32 +280,152 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private suspend fun checkSavedPosition(videoId: String) {
+        if (!settingsManager.rememberPlayback) return
+        val savedPos = videoDao.getSavedPosition(videoId) ?: return
+        val duration = engine.duration.value
+        if (savedPos > 3000L && (duration <= 0 || savedPos < duration - 3000L)) {
+            _uiState.update { it.copy(showResumeDialog = true, savedPositionMs = savedPos) }
+        }
+    }
+
+    fun resumeFromSavedPosition() {
+        val savedPos = _uiState.value.savedPositionMs
+        _uiState.update { it.copy(showResumeDialog = false) }
+        engine.seekTo(savedPos)
+        startBackgroundService()
+    }
+
+    fun dismissResumeDialog() {
+        _uiState.update { it.copy(showResumeDialog = false) }
+        startBackgroundService()
+    }
+
+    private fun addToQueueFromRelated(videos: List<Video>) {
+        if (_uiState.value.queue.isNotEmpty()) return
+        val queueItems = videos.filter { it.id.isNotBlank() }.map {
+            QueueItem(
+                videoId = it.id,
+                title = it.title,
+                channelName = it.channelName,
+                thumbnailUrl = it.thumbnailUrl
+            )
+        }
+        val currentVideo = _uiState.value.video
+        val allItems = if (currentVideo != null) {
+            listOf(
+                QueueItem(
+                    videoId = currentVideo.id,
+                    title = currentVideo.title,
+                    channelName = currentVideo.channelName,
+                    thumbnailUrl = currentVideo.thumbnailUrl
+                )
+            ) + queueItems.filter { it.videoId != currentVideo.id }
+        } else queueItems
+        _uiState.update { it.copy(queue = allItems, queueIndex = 0) }
+    }
+
+    fun addToQueue(video: Video) {
+        val item = QueueItem(
+            videoId = video.id,
+            title = video.title,
+            channelName = video.channelName,
+            thumbnailUrl = video.thumbnailUrl
+        )
+        _uiState.update { state ->
+            state.copy(queue = state.queue + item)
+        }
+    }
+
+    fun removeFromQueue(index: Int) {
+        _uiState.update { state ->
+            val newQueue = state.queue.toMutableList()
+            if (index in newQueue.indices) {
+                newQueue.removeAt(index)
+                val newIndex = if (index < state.queueIndex) state.queueIndex - 1 else state.queueIndex
+                state.copy(queue = newQueue, queueIndex = newIndex.coerceIn(-1, newQueue.size - 1))
+            } else state
+        }
+    }
+
+    fun clearQueue() {
+        _uiState.update { it.copy(queue = emptyList(), queueIndex = -1) }
+    }
+
+    fun reorderQueue(fromIndex: Int, toIndex: Int) {
+        _uiState.update { state ->
+            val newQueue = state.queue.toMutableList()
+            if (fromIndex in newQueue.indices && toIndex in newQueue.indices) {
+                val item = newQueue.removeAt(fromIndex)
+                newQueue.add(toIndex, item)
+                val newCurrentIndex = when {
+                    state.queueIndex == fromIndex -> toIndex
+                    fromIndex < state.queueIndex && toIndex >= state.queueIndex -> state.queueIndex - 1
+                    fromIndex > state.queueIndex && toIndex <= state.queueIndex -> state.queueIndex + 1
+                    else -> state.queueIndex
+                }
+                state.copy(queue = newQueue, queueIndex = newCurrentIndex)
+            } else state
+        }
+    }
+
+    fun toggleShuffle() {
+        _uiState.update { state ->
+            val newQueue = if (!state.shuffleEnabled) {
+                state.queue.toMutableList().shuffled()
+            } else {
+                state.queue
+            }
+            state.copy(
+                shuffleEnabled = !state.shuffleEnabled,
+                queue = newQueue,
+                queueIndex = newQueue.indexOfFirst { it.videoId == _currentVideoId.value }.coerceAtLeast(0)
+            )
+        }
+    }
+
+    fun cycleRepeatMode() {
+        _uiState.update { state ->
+            val nextMode = when (state.repeatMode) {
+                RepeatMode.OFF -> RepeatMode.ONE
+                RepeatMode.ONE -> RepeatMode.ALL
+                RepeatMode.ALL -> RepeatMode.OFF
+            }
+            state.copy(repeatMode = nextMode)
+        }
+    }
+
+    fun playFromQueue(index: Int) {
+        val queue = _uiState.value.queue
+        if (index in queue.indices) {
+            _uiState.update { it.copy(queueIndex = index) }
+            loadVideo(queue[index].videoId)
+        }
+    }
+
+    fun toggleQueueSheet() {
+        _uiState.update { it.copy(showQueueSheet = !it.showQueueSheet) }
+    }
+
     fun loadFormats(videoId: String = _currentVideoId.value) {
+        Log.d(TAG, "loadFormats: videoId=$videoId")
         viewModelScope.launch {
             getVideoFormatsUseCase(videoId).fold(
                 onSuccess = { formats ->
+                    Log.d(TAG, "loadFormats: success, count=${formats.size}")
                     _uiState.update { it.copy(formats = formats) }
                     loadBestStream(formats)
                 },
-                onFailure = { }
+                onFailure = { e ->
+                    Log.e(TAG, "loadFormats: FAILED: ${e.message}", e)
+                }
             )
         }
     }
 
     private fun loadBestStream(formats: List<VideoFormat>) {
+        Log.d(TAG, "loadBestStream: formats.size=${formats.size}, surfaceReady=$surfaceReady")
         if (formats.isEmpty()) return
-
-        val progressive = formats.firstOrNull { !it.isAdaptive && it.isVideo }
-        if (progressive != null) {
-            engine.loadStreams(progressive.url, progressive.url, progressive.url)
-            _uiState.update {
-                it.copy(
-                    selectedFormat = progressive,
-                    qualityLabel = if (progressive.height != null) "${progressive.height}p" else "Auto"
-                )
-            }
-            return
-        }
 
         val bestVideo = formats.filter { it.isAdaptive && it.isVideo }
             .maxByOrNull { it.height ?: 0 }
@@ -221,23 +433,71 @@ class PlayerViewModel @Inject constructor(
             .maxByOrNull { it.bitrate }
 
         if (bestVideo != null && bestAudio != null) {
-            engine.loadStreams(bestAudio.url, bestVideo.url)
             _uiState.update {
                 it.copy(
                     selectedFormat = bestVideo,
                     qualityLabel = if (bestVideo.height != null) "${bestVideo.height}p" else "Auto"
                 )
             }
+            if (surfaceReady) {
+                engine.loadStreams(bestAudio.url, bestVideo.url)
+                autoPlay()
+            } else {
+                pendingAudioUrl = bestAudio.url
+                pendingVideoUrl = bestVideo.url
+            }
         } else if (bestVideo != null) {
-            engine.loadStreams(bestVideo.url, bestVideo.url, bestVideo.url)
+            _uiState.update {
+                it.copy(
+                    selectedFormat = bestVideo,
+                    qualityLabel = if (bestVideo.height != null) "${bestVideo.height}p" else "Auto"
+                )
+            }
+            if (surfaceReady) {
+                engine.loadStreams(null, bestVideo.url)
+                autoPlay()
+            } else {
+                pendingAudioUrl = null
+                pendingVideoUrl = bestVideo.url
+            }
         } else if (bestAudio != null) {
-            engine.loadStreams(bestAudio.url, bestAudio.url, bestAudio.url)
+            if (surfaceReady) {
+                engine.loadStreams(bestAudio.url, null)
+                autoPlay()
+            } else {
+                pendingAudioUrl = bestAudio.url
+                pendingVideoUrl = null
+            }
             _uiState.update { it.copy(isAudioOnly = true) }
+        } else {
+            val progressive = formats.firstOrNull { !it.isAdaptive && it.isVideo }
+                ?: formats.firstOrNull { !it.isAdaptive }
+            if (progressive != null) {
+                _uiState.update { it.copy(selectedFormat = progressive, qualityLabel = progressive.qualityLabel) }
+                if (surfaceReady) {
+                    engine.loadStreams(null, null, progressive.url)
+                    autoPlay()
+                } else {
+                    pendingProgressiveUrl = progressive.url
+                }
+            }
+        }
+    }
+
+    private fun autoPlay() {
+        viewModelScope.launch {
+            delay(800)
+            val state = _uiState.value.playerState
+            if (state !is PlayerState.Error) {
+                engine.play()
+                startBackgroundService()
+            }
         }
     }
 
     fun play() {
         engine.play()
+        startBackgroundService()
     }
 
     fun pause() {
@@ -247,7 +507,10 @@ class PlayerViewModel @Inject constructor(
     fun togglePlayPause() {
         val state = _uiState.value.playerState
         if (state == PlayerState.Playing) engine.pause()
-        else engine.play()
+        else {
+            engine.play()
+            startBackgroundService()
+        }
     }
 
     fun seekTo(positionMs: Long) {
@@ -255,11 +518,114 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playNextVideo() {
-        val related = _uiState.value.relatedVideos
-        val currentId = _currentVideoId.value
-        val nextVideo = related.firstOrNull { it.id != currentId }
-        if (nextVideo != null) {
-            loadVideo(nextVideo.id)
+        val state = _uiState.value
+        val queue = state.queue
+        val currentIdx = state.queueIndex
+
+        if (state.repeatMode == RepeatMode.ONE) {
+            engine.seekTo(0L)
+            engine.play()
+            return
+        }
+
+        if (currentIdx in queue.indices && currentIdx < queue.size - 1) {
+            val nextIdx = currentIdx + 1
+            _uiState.update { it.copy(queueIndex = nextIdx) }
+            loadVideo(queue[nextIdx].videoId)
+        } else if (state.repeatMode == RepeatMode.ALL && queue.isNotEmpty()) {
+            _uiState.update { it.copy(queueIndex = 0) }
+            loadVideo(queue[0].videoId)
+        } else {
+            val related = state.relatedVideos
+            val currentId = _currentVideoId.value
+            val nextVideo = related.firstOrNull { it.id != currentId }
+            if (nextVideo != null) {
+                loadVideo(nextVideo.id)
+            }
+        }
+    }
+
+    private fun startBackgroundService() {
+        if (!settingsManager.backgroundPlay) return
+        val video = _uiState.value.video ?: return
+        try {
+            val intent = Intent(context, PlaybackService::class.java)
+            context.startForegroundService(intent)
+            PlaybackServiceInstance.service?.playVideo(
+                engine,
+                video.title,
+                video.channelName,
+                video.thumbnailUrl
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start background service: ${e.message}")
+        }
+    }
+
+    fun enterPipMode() {
+        _uiState.update { it.copy(isPipMode = true) }
+        startBackgroundService()
+    }
+
+    fun exitPipMode() {
+        _uiState.update { it.copy(isPipMode = false) }
+    }
+
+    fun onPictureInPictureModeChanged(isInPip: Boolean) {
+        if (isInPip) {
+            enterPipMode()
+        } else {
+            exitPipMode()
+        }
+    }
+
+    fun toggleMiniPlayer() {
+        if (!settingsManager.miniPlayer) return
+        _uiState.update { it.copy(isMiniPlayer = !it.isMiniPlayer) }
+    }
+
+    fun enterMiniPlayer() {
+        if (!settingsManager.miniPlayer) return
+        val state = _uiState.value
+        if (state.video != null && state.playerState == PlayerState.Playing || state.playerState == PlayerState.Paused) {
+            miniPlayerManager.activate(
+                video = state.video!!,
+                currentPosition = state.position,
+                currentDuration = state.duration,
+                currentBufferedPercent = state.bufferedPercent,
+                isPlaying = state.playerState == PlayerState.Playing,
+                playerEngine = engine
+            )
+        }
+        _uiState.update { it.copy(isMiniPlayer = true) }
+    }
+
+    fun exitMiniPlayer() {
+        _uiState.update { it.copy(isMiniPlayer = false) }
+    }
+
+    fun toggleEqualizer() {
+        val enabled = !_uiState.value.equalizerEnabled
+        _uiState.update { it.copy(equalizerEnabled = enabled) }
+        settingsManager.equalizerEnabled = enabled
+        engine.config.equalizerEnabled = enabled
+        val eqManager = engine.getEqualizerManager()
+        if (enabled && engine.audioSessionId.value != 0) {
+            eqManager.initialize(engine.audioSessionId.value)
+            eqManager.setEnabled(true)
+        } else {
+            eqManager.setEnabled(false)
+        }
+    }
+
+    private fun savePlaybackPosition() {
+        val videoId = _currentVideoId.value
+        val pos = _uiState.value.position
+        if (videoId.isNotBlank() && pos > 0 && settingsManager.rememberPlayback) {
+            positionSaveJob?.cancel()
+            positionSaveJob = viewModelScope.launch {
+                videoDao.updateLastPosition(videoId, pos)
+            }
         }
     }
 
@@ -298,22 +664,32 @@ class PlayerViewModel @Inject constructor(
             )
         }
 
-        val isProgressive = !format.isAdaptive
-        val isAudioOnly = format.isAdaptive && format.isAudio
-
-        if (isProgressive) {
-            engine.loadStreams(format.url, format.url, format.url)
-        } else if (isAudioOnly) {
-            engine.loadStreams(format.url, format.url, format.url)
+        if (format.isAdaptive && format.isAudio) {
+            if (surfaceReady) {
+                engine.loadStreams(format.url, null)
+            } else {
+                pendingAudioUrl = format.url
+                pendingVideoUrl = null
+            }
             _uiState.update { it.copy(isAudioOnly = true) }
         } else {
             val bestAudio = _uiState.value.formats
                 .filter { it.isAdaptive && it.isAudio }
                 .maxByOrNull { it.bitrate }
             if (bestAudio != null) {
-                engine.loadStreams(bestAudio.url, format.url)
+                if (surfaceReady) {
+                    engine.loadStreams(bestAudio.url, format.url)
+                } else {
+                    pendingAudioUrl = bestAudio.url
+                    pendingVideoUrl = format.url
+                }
             } else {
-                engine.loadStreams(format.url, format.url, format.url)
+                if (surfaceReady) {
+                    engine.loadStreams(null, format.url)
+                } else {
+                    pendingAudioUrl = null
+                    pendingVideoUrl = format.url
+                }
             }
         }
     }
@@ -397,7 +773,7 @@ class PlayerViewModel @Inject constructor(
             while (isActive) {
                 val state = _uiState.value.playerState
                 val pos = _uiState.value.position
-                val action = sponsorBlockManager.checkSegments(state, pos)
+                val action = sponsorBlockManager.checkSegments(_currentVideoId.value, state, pos)
                 if (action is com.streamvault.player.sponsorblock.SponsorBlockAction.Skip) {
                     val endMs = (action.segment.segment[1] * 1000).toLong()
                     engine.seekTo(endMs)
@@ -407,8 +783,123 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    fun startDownload() {
+        val video = _uiState.value.video ?: return
+        val formats = _uiState.value.formats
+        if (formats.isEmpty()) return
+
+        val bestVideo = formats.filter { it.isAdaptive && it.isVideo }
+            .maxByOrNull { it.height ?: 0 }
+        val bestAudio = formats.filter { it.isAdaptive && it.isAudio }
+            .maxByOrNull { it.bitrate }
+
+        if (bestVideo != null && bestAudio != null) {
+            _uiState.update { it.copy(isDownloading = true, downloadProgress = 0) }
+            downloadManager.startDownload(video, bestAudio.url, bestVideo.url)
+            observeDownloadProgress(video.id)
+        } else if (bestVideo != null) {
+            _uiState.update { it.copy(isDownloading = true, downloadProgress = 0) }
+            downloadManager.startDownload(video, "", bestVideo.url)
+            observeDownloadProgress(video.id)
+        }
+    }
+
+    private fun observeDownloadProgress(videoId: String) {
+        viewModelScope.launch {
+            downloadManager.getDownload(videoId).collect { entity ->
+                if (entity == null) {
+                    _uiState.update { it.copy(isDownloading = false, isDownloaded = false, downloadProgress = 0) }
+                    return@collect
+                }
+                val isCompleted = entity.downloadStatus == com.streamvault.app.data.local.DownloadStatus.COMPLETED.name
+                val isDownloading = entity.downloadStatus == com.streamvault.app.data.local.DownloadStatus.DOWNLOADING.name ||
+                    entity.downloadStatus == com.streamvault.app.data.local.DownloadStatus.PENDING.name
+                val isFailed = entity.downloadStatus == com.streamvault.app.data.local.DownloadStatus.FAILED.name
+
+                _uiState.update {
+                    it.copy(
+                        isDownloaded = isCompleted,
+                        isDownloading = isDownloading,
+                        downloadProgress = entity.progress
+                    )
+                }
+
+                if (isCompleted || isFailed) {
+                    return@collect
+                }
+            }
+        }
+    }
+
+    fun pauseDownload() {
+        downloadManager.pauseDownload(_currentVideoId.value)
+        _uiState.update { it.copy(isDownloading = false) }
+    }
+
+    fun cancelDownload() {
+        downloadManager.cancelDownload(_currentVideoId.value)
+        _uiState.update { it.copy(isDownloading = false, downloadProgress = 0) }
+    }
+
+    fun deleteDownload() {
+        viewModelScope.launch {
+            downloadManager.deleteDownload(_currentVideoId.value)
+            _uiState.update { it.copy(isDownloaded = false, isDownloading = false, downloadProgress = 0) }
+        }
+    }
+
+    fun checkDownloadStatus() {
+        viewModelScope.launch {
+            val isDownloaded = downloadManager.isDownloaded(_currentVideoId.value)
+            _uiState.update { it.copy(isDownloaded = isDownloaded) }
+            if (isDownloaded) {
+                observeDownloadProgress(_currentVideoId.value)
+            }
+        }
+    }
+
+    fun playOffline() {
+        viewModelScope.launch {
+            val filePath = downloadManager.getLocalFilePath(_currentVideoId.value) ?: return@launch
+            _uiState.update { it.copy(isPlayingOffline = true, isLoading = true) }
+
+            try {
+                val file = java.io.File(filePath)
+                if (!file.exists()) {
+                    _uiState.update { it.copy(error = "Downloaded file not found", isLoading = false, isPlayingOffline = false) }
+                    return@launch
+                }
+
+                if (surfaceReady) {
+                    engine.loadStreams(null, null, file.absolutePath)
+                    autoPlay()
+                } else {
+                    pendingProgressiveUrl = file.absolutePath
+                }
+
+                _uiState.update { it.copy(isLoading = false) }
+            } catch (e: Exception) {
+                Log.e(TAG, "playOffline: failed", e)
+                _uiState.update { it.copy(error = "Failed to play offline: ${e.message}", isLoading = false, isPlayingOffline = false) }
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
+        if (miniPlayerManager.state.value.isActive) {
+            // Mini player is active, don't release engine
+            return
+        }
+        savePlaybackPosition()
+        try {
+            val intent = Intent(context, PlaybackService::class.java)
+            context.stopService(intent)
+        } catch (_: Exception) {}
         engine.release()
     }
+}
+
+object PlaybackServiceInstance {
+    var service: PlaybackService? = null
 }

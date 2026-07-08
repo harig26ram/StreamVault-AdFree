@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.domain.model.FeedItem
 import com.streamvault.app.domain.model.HomeFeed
+import com.streamvault.app.data.repository.VisitorDataBootstrapper
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.usecase.AddToWatchLaterUseCase
 import com.streamvault.app.domain.usecase.GetHomeFeedUseCase
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 data class HomeUiState(
@@ -25,7 +27,8 @@ data class HomeUiState(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val getHomeFeedUseCase: GetHomeFeedUseCase,
-    private val addToWatchLaterUseCase: AddToWatchLaterUseCase
+    private val addToWatchLaterUseCase: AddToWatchLaterUseCase,
+    private val visitorDataBootstrapper: VisitorDataBootstrapper
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -38,21 +41,32 @@ class HomeViewModel @Inject constructor(
     fun loadHomeFeed() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            getHomeFeedUseCase().fold(
-                onSuccess = { feed ->
-                    _uiState.value = _uiState.value.copy(
-                        feedItems = feed.items,
-                        continuationToken = feed.continuationToken,
-                        isLoading = false
-                    )
-                },
-                onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        error = e.message,
-                        isLoading = false
-                    )
-                }
-            )
+            visitorDataBootstrapper.ensureVisitorData()
+            val result = withTimeoutOrNull(15000L) {
+                getHomeFeedUseCase()
+            }
+            if (result != null) {
+                result.fold(
+                    onSuccess = { feed ->
+                        _uiState.value = _uiState.value.copy(
+                            feedItems = feed.items,
+                            continuationToken = feed.continuationToken,
+                            isLoading = false
+                        )
+                    },
+                    onFailure = { e ->
+                        _uiState.value = _uiState.value.copy(
+                            error = e.message,
+                            isLoading = false
+                        )
+                    }
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    error = "Loading timed out. Please try again.",
+                    isLoading = false
+                )
+            }
         }
     }
 
@@ -90,6 +104,7 @@ class HomeViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isRefreshing = true)
+            visitorDataBootstrapper.ensureVisitorData()
             getHomeFeedUseCase().fold(
                 onSuccess = { feed ->
                     _uiState.value = _uiState.value.copy(

@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.streamvault.app.presentation.ui.components.LoadingIndicator
@@ -64,7 +65,7 @@ fun SearchScreen(
             onQueryChange = { viewModel.onQueryChange(it) },
             onSearch = { viewModel.search() },
             onClear = { viewModel.clearSearch() },
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
         )
 
         // Content
@@ -79,7 +80,8 @@ fun SearchScreen(
                     Text(
                         text = "Recent searches",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
@@ -91,14 +93,15 @@ fun SearchScreen(
                                     viewModel.onQueryChange(query)
                                     viewModel.search(query)
                                 }
-                                .padding(vertical = 12.dp),
+                                .padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.History,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(18.dp)
                             )
 
                             Text(
@@ -107,11 +110,15 @@ fun SearchScreen(
                                 modifier = Modifier.weight(1f)
                             )
 
-                            IconButton(onClick = { viewModel.removeFromHistory(query) }) {
+                            IconButton(
+                                onClick = { viewModel.removeFromHistory(query) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Remove",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -126,11 +133,16 @@ fun SearchScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = uiState.error ?: "Error",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = uiState.error ?: "Error",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
             else -> {
@@ -158,113 +170,94 @@ fun SearchScreen(
                                 )
                             }
                             is com.streamvault.app.domain.model.FeedItem.Channel -> {
-                                Card(
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onChannelClick(feedItem.channel.id) },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surface
-                                    ),
-                                    shape = RoundedCornerShape(0.dp)
+                                        .clickable { onChannelClick(feedItem.channel.id) }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(
+                                    AsyncImage(
+                                        model = feedItem.channel.avatarUrl,
+                                        contentDescription = feedItem.channel.name,
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                            .size(44.dp)
+                                            .clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
                                     ) {
-                                        AsyncImage(
-                                            model = feedItem.channel.avatarUrl,
-                                            contentDescription = feedItem.channel.name,
-                                            modifier = Modifier
-                                                .size(48.dp)
-                                                .clip(CircleShape),
-                                            contentScale = ContentScale.Crop
+                                        Text(
+                                            text = feedItem.channel.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(
-                                                text = feedItem.channel.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = "${feedItem.channel.subscriberCount} subscribers",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
+                                        Text(
+                                            text = "${feedItem.channel.subscriberCount} subscribers",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
                             is com.streamvault.app.domain.model.FeedItem.Playlist -> {
-                                Card(
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onPlaylistClick(feedItem.playlist.id) },
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surface
-                                    ),
-                                    shape = RoundedCornerShape(0.dp)
+                                        .clickable { onPlaylistClick(feedItem.playlist.id) }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(
+                                    Box(
                                         modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                            .size(100.dp, 56.dp)
+                                            .clip(RoundedCornerShape(6.dp))
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(120.dp, 68.dp)
-                                                .clip(RoundedCornerShape(8.dp))
+                                        AsyncImage(
+                                            model = feedItem.playlist.thumbnailUrl,
+                                            contentDescription = feedItem.playlist.title,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Surface(
+                                            modifier = Modifier.align(Alignment.Center),
+                                            color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.7f),
+                                            shape = RoundedCornerShape(4.dp)
                                         ) {
-                                            AsyncImage(
-                                                model = feedItem.playlist.thumbnailUrl,
-                                                contentDescription = feedItem.playlist.title,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                            Surface(
-                                                modifier = Modifier
-                                                    .align(Alignment.Center),
-                                                color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.8f),
-                                                shape = RoundedCornerShape(4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.PlaylistPlay,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.padding(4.dp),
-                                                    tint = MaterialTheme.colorScheme.inverseOnSurface
-                                                )
-                                            }
-                                        }
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Text(
-                                                text = feedItem.playlist.title,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = "${feedItem.playlist.videoCount} videos · ${feedItem.playlist.channelName}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                            Icon(
+                                                imageVector = Icons.Default.PlaylistPlay,
+                                                contentDescription = null,
+                                                modifier = Modifier.padding(4.dp),
+                                                tint = androidx.compose.ui.graphics.Color.White
                                             )
                                         }
+                                    }
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Text(
+                                            text = feedItem.playlist.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "${feedItem.playlist.videoCount} videos · ${feedItem.playlist.channelName}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
                             }
@@ -278,12 +271,13 @@ fun SearchScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(16.dp),
+                                    .padding(20.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 2.dp
                                 )
                             }
                         }

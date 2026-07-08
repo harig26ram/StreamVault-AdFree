@@ -1,18 +1,22 @@
 package com.streamvault.app.presentation.ui.screen
 
 import android.app.PictureInPictureParams
+import android.app.PendingIntent
+import android.content.Intent
 import android.graphics.SurfaceTexture
 import android.util.Rational
 import android.view.Surface
 import android.view.TextureView
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -35,9 +40,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.streamvault.app.R
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.model.VideoFormat
+import com.streamvault.app.presentation.ui.components.MiniPlayer
 import com.streamvault.app.presentation.viewmodel.PlayerViewModel
+import com.streamvault.app.presentation.viewmodel.RepeatMode
 import com.streamvault.player.core.PlayerState
 import com.streamvault.player.ui.*
 import androidx.compose.runtime.mutableFloatStateOf
@@ -52,6 +60,7 @@ import kotlin.math.floor
 fun PlayerScreen(
     onBack: () -> Unit,
     onChannelClick: (String) -> Unit,
+    onEqualizerClick: () -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -134,13 +143,77 @@ fun PlayerScreen(
 
     LaunchedEffect(currentVideoId) {
         if (currentVideoId.isNotBlank()) {
-            viewModel.loadFormats(currentVideoId)
             viewModel.loadCaptions(currentVideoId)
             viewModel.loadComments(currentVideoId)
             if (viewModel.sponsorBlockEnabled) {
                 viewModel.loadSponsorSegments(currentVideoId)
             }
         }
+    }
+
+    val act = context as? ComponentActivity
+    val activityInPip = act?.isInPictureInPictureMode ?: false
+    LaunchedEffect(activityInPip) {
+        if (activityInPip) {
+            viewModel.enterPipMode()
+            showControls = false
+        } else {
+            viewModel.exitPipMode()
+        }
+    }
+
+    if (uiState.showResumeDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissResumeDialog() },
+            title = { Text(stringResource(R.string.resume)) },
+            text = {
+                Text(stringResource(R.string.resume_from, formatTime(uiState.savedPositionMs)))
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.resumeFromSavedPosition() }) {
+                    Text(stringResource(R.string.resume))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissResumeDialog() }) {
+                    Text(stringResource(R.string.start_over))
+                }
+            }
+        )
+    }
+
+    if (uiState.showQueueSheet) {
+        QueueBottomSheet(
+            queue = uiState.queue,
+            currentIndex = uiState.queueIndex,
+            repeatMode = uiState.repeatMode,
+            shuffleEnabled = uiState.shuffleEnabled,
+            onItemSelected = { viewModel.playFromQueue(it) },
+            onRemoveItem = { viewModel.removeFromQueue(it) },
+            onClearQueue = { viewModel.clearQueue() },
+            onShuffleToggle = { viewModel.toggleShuffle() },
+            onRepeatCycle = { viewModel.cycleRepeatMode() },
+            onDismiss = { viewModel.toggleQueueSheet() }
+        )
+    }
+
+    if (uiState.isMiniPlayer && uiState.video != null) {
+        MiniPlayer(
+            title = uiState.video!!.title,
+            channelName = uiState.video!!.channelName,
+            thumbnailUrl = uiState.video!!.thumbnailUrl,
+            isPlaying = uiState.playerState == PlayerState.Playing,
+            progress = if (uiState.duration > 0) (uiState.position.toFloat() / uiState.duration.toFloat()).coerceIn(0f, 1f) else 0f,
+            onClick = { viewModel.exitMiniPlayer() },
+            onPlayPause = { viewModel.togglePlayPause() },
+            onClose = {
+                viewModel.exitMiniPlayer()
+                viewModel.pause()
+            },
+            onQueueClick = { viewModel.toggleQueueSheet() },
+            modifier = Modifier.fillMaxWidth()
+        )
+        return
     }
 
     Box(
@@ -226,7 +299,13 @@ fun PlayerScreen(
                             .padding(horizontal = 4.dp)
                     ) {
                         IconButton(
-                            onClick = onBack,
+                            onClick = {
+                                if (uiState.isMiniPlayerEnabled && uiState.playerState == PlayerState.Playing) {
+                                    viewModel.enterMiniPlayer()
+                                } else {
+                                    onBack()
+                                }
+                            },
                             modifier = Modifier
                                 .align(Alignment.CenterStart)
                                 .size(44.dp)
@@ -317,8 +396,19 @@ fun PlayerScreen(
                             try {
                                 val act = context as? ComponentActivity
                                 act?.let {
+                    val pipActions = listOf(
+                        android.app.RemoteAction(
+                            android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_pause),
+                            "Pause", "Pause", PendingIntent.getBroadcast(context, 10, Intent("com.streamvault.app.ACTION_PAUSE"), PendingIntent.FLAG_IMMUTABLE)
+                        ),
+                        android.app.RemoteAction(
+                            android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_play),
+                            "Play", "Play", PendingIntent.getBroadcast(context, 11, Intent("com.streamvault.app.ACTION_PLAY"), PendingIntent.FLAG_IMMUTABLE)
+                        )
+                    )
                                     val params = PictureInPictureParams.Builder()
                                         .setAspectRatio(Rational(16, 9))
+                                        .setActions(pipActions)
                                         .build()
                                     it.enterPictureInPictureMode(params)
                                 }
@@ -334,6 +424,38 @@ fun PlayerScreen(
                             Icons.Default.PictureInPictureAlt,
                             "Picture in Picture",
                             tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.toggleQueueSheet() },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 112.dp, end = 8.dp)
+                            .size(40.dp)
+                            .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                    ) {
+                        Icon(
+                            Icons.Default.QueueMusic,
+                            stringResource(R.string.queue),
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onEqualizerClick,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 160.dp, end = 8.dp)
+                            .size(40.dp)
+                            .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                    ) {
+                        Icon(
+                            Icons.Default.Equalizer,
+                            stringResource(R.string.equalizer),
+                            tint = if (uiState.equalizerEnabled) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -605,9 +727,20 @@ fun PlayerScreen(
                         )
                         MiniAction(
                             icon = Icons.Default.Download,
-                            label = "Download",
+                            label = if (uiState.isDownloaded) "Downloaded" else if (uiState.isDownloading) "${uiState.downloadProgress}%" else "Download",
                             onClick = {
-                                android.widget.Toast.makeText(context, "Downloads coming soon", android.widget.Toast.LENGTH_SHORT).show()
+                                when {
+                                    uiState.isDownloaded -> {
+                                        viewModel.deleteDownload()
+                                        android.widget.Toast.makeText(context, "Download deleted", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                    uiState.isDownloading -> {
+                                        viewModel.pauseDownload()
+                                    }
+                                    else -> {
+                                        viewModel.startDownload()
+                                    }
+                                }
                             }
                         )
                     }
@@ -799,8 +932,9 @@ fun PlayerScreen(
                     try {
                         val url = java.net.URL(appTrack.baseUrl)
                         val connection = url.openConnection()
-                        val text = connection.getInputStream().bufferedReader().readText()
-                        captionText = parseCaptions(text)
+                        connection.getInputStream().bufferedReader().use { reader ->
+                            captionText = parseCaptions(reader.readText())
+                        }
                     } catch (e: Exception) {
                         captionText = null
                     }
@@ -941,5 +1075,275 @@ private fun MiniAction(
             modifier = Modifier.size(20.dp)
         )
         Text(text = label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QueueBottomSheet(
+    queue: List<com.streamvault.app.presentation.viewmodel.QueueItem>,
+    currentIndex: Int,
+    repeatMode: RepeatMode,
+    shuffleEnabled: Boolean,
+    onItemSelected: (Int) -> Unit,
+    onRemoveItem: (Int) -> Unit,
+    onClearQueue: () -> Unit,
+    onShuffleToggle: () -> Unit,
+    onRepeatCycle: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var showClearDialog by remember { mutableStateOf(false) }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text(stringResource(R.string.clear_queue_confirm)) },
+            text = { Text(stringResource(R.string.clear_queue_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearDialog = false
+                    onClearQueue()
+                }) {
+                    Text(stringResource(R.string.yes))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text(stringResource(R.string.no))
+                }
+            }
+        )
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    modifier = Modifier.size(width = 32.dp, height = 4.dp),
+                    shape = RoundedCornerShape(2.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                ) {}
+            }
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.up_next_queue, queue.size),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    onClick = onShuffleToggle,
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (shuffleEnabled) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Shuffle,
+                            contentDescription = stringResource(R.string.shuffle),
+                            modifier = Modifier.size(16.dp),
+                            tint = if (shuffleEnabled) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = stringResource(R.string.shuffle),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (shuffleEnabled) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Surface(
+                    onClick = onRepeatCycle,
+                    shape = RoundedCornerShape(20.dp),
+                    color = if (repeatMode != RepeatMode.OFF) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val (icon, desc) = when (repeatMode) {
+                            RepeatMode.OFF -> Icons.Default.Repeat to stringResource(R.string.repeat_off)
+                            RepeatMode.ONE -> Icons.Default.RepeatOne to stringResource(R.string.repeat_one)
+                            RepeatMode.ALL -> Icons.Default.Repeat to stringResource(R.string.repeat_all)
+                        }
+                        Icon(
+                            icon,
+                            contentDescription = desc,
+                            modifier = Modifier.size(16.dp),
+                            tint = if (repeatMode != RepeatMode.OFF) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = when (repeatMode) {
+                                RepeatMode.OFF -> stringResource(R.string.repeat_off)
+                                RepeatMode.ONE -> stringResource(R.string.repeat_one)
+                                RepeatMode.ALL -> stringResource(R.string.repeat_all)
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (repeatMode != RepeatMode.OFF) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                if (queue.isNotEmpty()) {
+                    Surface(
+                        onClick = { showClearDialog = true },
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteSweep,
+                                contentDescription = stringResource(R.string.clear_queue),
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = stringResource(R.string.clear_queue),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (queue.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.no_queue_items),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 400.dp)
+                ) {
+                    itemsIndexed(queue, key = { _, item -> item.videoId }) { index, item ->
+                        val isCurrent = index == currentIndex
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                                    else Color.Transparent,
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable { onItemSelected(index) }
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box {
+                                AsyncImage(
+                                    model = item.thumbnailUrl,
+                                    contentDescription = item.title,
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(6.dp)),
+                                    contentScale = ContentScale.Crop
+                                )
+                                if (isCurrent) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .padding(2.dp),
+                                        shape = RoundedCornerShape(3.dp),
+                                        color = MaterialTheme.colorScheme.primary
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Equalizer,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier
+                                                .size(14.dp)
+                                                .padding(1.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.title,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                                    color = if (isCurrent) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (item.channelName.isNotBlank()) {
+                                    Text(
+                                        text = item.channelName,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = { onRemoveItem(index) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = stringResource(R.string.remove_from_queue),
+                                    modifier = Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

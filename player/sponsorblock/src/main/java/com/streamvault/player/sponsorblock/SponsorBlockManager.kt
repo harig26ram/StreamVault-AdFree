@@ -26,11 +26,11 @@ class SponsorBlockManager(
         return segment.category == "sponsor" || segment.category == "selfpromo"
     }
 
-    fun checkSegments(state: PlayerState, positionMs: Long): SponsorBlockAction? {
+    fun checkSegments(videoId: String, state: PlayerState, positionMs: Long): SponsorBlockAction? {
         if (state !is PlayerState.Playing) return null
-        val allSegments = cache.values.flatten()
-        if (allSegments.isEmpty()) return SponsorBlockAction.None
-        for (segment in allSegments) {
+        val cachedSegments = cache[videoId] ?: emptyList()
+        if (cachedSegments.isEmpty()) return SponsorBlockAction.None
+        for (segment in cachedSegments) {
             if (!shouldAutoSkip(segment)) continue
             val startMs = (segment.segment[0] * 1000).toLong()
             val endMs = (segment.segment[1] * 1000).toLong()

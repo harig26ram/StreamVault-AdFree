@@ -1,0 +1,30 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e3]:
+    - banner "Workspace tabs" [ref=f5e4]:
+      - tablist "Open workspaces" [ref=f5e5]:
+        - tab "Welcome to Open Design" [selected] [ref=f5e6]:
+          - button "Welcome to Open Design" [ref=f5e7]:
+            - img [ref=f5e9]
+            - generic [ref=f5e11]: Welcome to Open Design
+        - button "New tab" [disabled] [ref=f5e12]:
+          - img [ref=f5e13]
+    - main "Welcome to Open Design" [ref=f5e17]:
+      - region "Welcome to Open Design" [ref=f5e18]:
+        - generic [ref=f5e19]:
+          - button "English" [ref=f5e21] [cursor=pointer]:
+            - img [ref=f5e22]
+          - button "Dark" [ref=f5e26] [cursor=pointer]:
+            - img [ref=f5e27]
+        - generic [ref=f5e30]:
+          - img "Open Design" [ref=f5e31]
+          - heading "Sign in to Open Design" [level=1] [ref=f5e32]
+          - paragraph [ref=f5e33]: Sign in to start designing with cloud AI right away — no complex setup required.
+          - button "Sign in to Open Design" [ref=f5e34] [cursor=pointer]:
+            - img [ref=f5e35]
+            - generic [ref=f5e39]: Sign in to Open Design
+          - generic [ref=f5e40]:
+            - button "Local coding agent" [ref=f5e41] [cursor=pointer]
+            - generic [ref=f5e42]: or
+            - button "Bring your own key" [ref=f5e43] [cursor=pointer]
+        - generic [ref=f5e44]: © 2026 Open Design · All rights reserved.
+  - alert [ref=f5e45]

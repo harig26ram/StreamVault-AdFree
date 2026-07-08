@@ -65,6 +65,20 @@ class NParamDecryptor {
         val match = funcRegex.find(jsCode)
         if (match != null) return match.groupValues[1]
 
+        val arrowFunc = Regex(
+            """\([^)]*\)\s*=>\s*\{(.*?return\s+\w+\.join\([^)]*\)[^}]*)\}""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        val arrowMatch = arrowFunc.find(jsCode)
+        if (arrowMatch != null) return arrowMatch.groupValues[1]
+
+        val splitJoin = Regex(
+            """split\(["']{2}\)[^;]*;(?:[^;]*;){1,15}\w+\.join\(["']{2}\)""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        val sjMatch = splitJoin.find(jsCode)
+        if (sjMatch != null) return sjMatch.value
+
         val start = jsCode.indexOf("split(\"\")")
         if (start >= 0) {
             val end = jsCode.indexOf("join(\"\")", start)
@@ -73,28 +87,32 @@ class NParamDecryptor {
             }
         }
 
+        val broad = Regex(
+            """split\([^)]+\)[^;]*(?:;[^;]*){1,20}join\([^)]+\)""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        val broadMatch = broad.find(jsCode)
+        if (broadMatch != null) return broadMatch.value
+
         return jsCode.takeIf { it.isNotBlank() }
     }
 
     private fun parseFallbackN(jsCode: String): NTransformOp? {
-        val knownPatterns = listOf(
-            listOf(
-                Pair(0, 18), Pair(1, 45), Pair(2, 29), Pair(3, 56),
-                Pair(4, 8), Pair(5, 37), Pair(6, 62), Pair(7, 13),
-                Pair(9, 41), Pair(10, 50), Pair(11, 23), Pair(12, 3)
-            ),
-            listOf(
-                Pair(0, 3), Pair(1, 7), Pair(2, 11), Pair(4, 14),
-                Pair(5, 9), Pair(6, 13), Pair(8, 15), Pair(10, 12)
-            )
+        val swapPairs = mutableListOf<Pair<Int, Int>>()
+        val swapPattern = Regex(
+            """\w+\[(\d+)]\s*=\s*\w+\[(\d+)]""",
+            RegexOption.DOT_MATCHES_ALL
         )
-        val lower = jsCode.lowercase()
-        for ((i, pattern) in knownPatterns.withIndex()) {
-            if (lower.contains("split") && lower.contains("join") && lower.contains("n$i")) {
-                return NTransformOp(pattern)
+        for (match in swapPattern.findAll(jsCode)) {
+            swapPairs.add(Pair(match.groupValues[1].toInt(), match.groupValues[2].toInt()))
+        }
+        if (swapPairs.isEmpty()) {
+            val allNumbers = Regex("""\b(\d+)\b""").findAll(jsCode).map { it.groupValues[1].toInt() }.toList()
+            for (i in 0 until allNumbers.size - 1 step 2) {
+                swapPairs.add(Pair(allNumbers[i], allNumbers[i + 1]))
             }
         }
-        return null
+        return if (swapPairs.isNotEmpty()) NTransformOp(swapPairs) else null
     }
 
     fun applyTransform(input: String, transformOp: NTransformOp): String {

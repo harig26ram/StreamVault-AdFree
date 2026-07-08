@@ -1,0 +1,120 @@
+package com.streamvault.app.data.download
+
+import android.content.Context
+import androidx.work.*
+import com.streamvault.app.data.local.DownloadEntity
+import com.streamvault.app.data.local.DownloadStatus
+import com.streamvault.app.data.local.VideoDao
+import com.streamvault.app.domain.model.Video
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
+import java.util.concurrent.TimeUnit
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class DownloadManager @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val videoDao: VideoDao
+) {
+
+    fun startDownload(video: Video, audioUrl: String, videoUrl: String) {
+        val data = workDataOf(
+            DownloadWorker.KEY_VIDEO_ID to video.id,
+            DownloadWorker.KEY_TITLE to video.title,
+            DownloadWorker.KEY_CHANNEL_NAME to video.channelName,
+            DownloadWorker.KEY_THUMBNAIL_URL to video.thumbnailUrl,
+            DownloadWorker.KEY_AUDIO_URL to audioUrl,
+            DownloadWorker.KEY_VIDEO_URL to videoUrl
+        )
+
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+
+        val workRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setConstraints(constraints)
+            .setInputData(data)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .addTag("download_${video.id}")
+            .build()
+
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(
+                "download_${video.id}",
+                ExistingWorkPolicy.REPLACE,
+                workRequest
+            )
+    }
+
+    fun pauseDownload(videoId: String) {
+        WorkManager.getInstance(context).cancelUniqueWork("download_$videoId")
+    }
+
+    fun cancelDownload(videoId: String) {
+        WorkManager.getInstance(context).cancelUniqueWork("download_$videoId")
+    }
+
+    fun getDownload(videoId: String): Flow<DownloadEntity?> {
+        return videoDao.observeDownload(videoId)
+    }
+
+    fun getAllDownloads(): Flow<List<DownloadEntity>> {
+        return videoDao.getAllDownloads()
+    }
+
+    suspend fun deleteDownload(videoId: String) {
+        val entity = videoDao.getDownload(videoId) ?: return
+        if (entity.filePath.isNotEmpty()) {
+            try {
+                context.filesDir.resolve(entity.filePath).delete()
+            } catch (_: Exception) {}
+        }
+        videoDao.deleteDownload(videoId)
+    }
+
+    suspend fun isDownloaded(videoId: String): Boolean {
+        val entity = videoDao.getDownload(videoId) ?: return false
+        return entity.downloadStatus == DownloadStatus.COMPLETED.name
+    }
+
+    suspend fun getLocalFilePath(videoId: String): String? {
+        val entity = videoDao.getDownload(videoId) ?: return null
+        if (entity.downloadStatus != DownloadStatus.COMPLETED.name) return null
+        val file = context.filesDir.resolve(entity.filePath)
+        return if (file.exists()) file.absolutePath else null
+    }
+
+    suspend fun resumePendingDownloads() {
+        val pending = videoDao.getPendingDownloads()
+        for (entity in pending) {
+            if (entity.audioUrl.isEmpty() || entity.videoUrl.isEmpty()) {
+                videoDao.updateDownloadStatus(entity.videoId, DownloadStatus.FAILED.name, 0)
+                continue
+            }
+            val data = workDataOf(
+                DownloadWorker.KEY_VIDEO_ID to entity.videoId,
+                DownloadWorker.KEY_TITLE to entity.title,
+                DownloadWorker.KEY_CHANNEL_NAME to entity.channelName,
+                DownloadWorker.KEY_THUMBNAIL_URL to entity.thumbnailUrl,
+                DownloadWorker.KEY_AUDIO_URL to entity.audioUrl,
+                DownloadWorker.KEY_VIDEO_URL to entity.videoUrl
+            )
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+            val workRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
+                .setConstraints(constraints)
+                .setInputData(data)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .addTag("download_${entity.videoId}")
+                .build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(
+                    "download_${entity.videoId}",
+                    ExistingWorkPolicy.REPLACE,
+                    workRequest
+                )
+        }
+    }
+}

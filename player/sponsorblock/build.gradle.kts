@@ -8,10 +8,23 @@ android {
     compileSdk = 36
     defaultConfig { minSdk = 24 }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
     }
-    kotlinOptions { jvmTarget = "11" }
+    kotlinOptions { jvmTarget = "1.8" }
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    if (name.contains("Test", ignoreCase = true)) {
+        kotlinOptions.jvmTarget = "11"
+    }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    if (name.contains("Test", ignoreCase = true)) {
+        sourceCompatibility = JavaVersion.VERSION_11.toString()
+        targetCompatibility = JavaVersion.VERSION_11.toString()
+    }
 }
 
 dependencies {

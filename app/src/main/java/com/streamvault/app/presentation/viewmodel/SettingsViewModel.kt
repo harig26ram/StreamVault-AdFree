@@ -27,6 +27,7 @@ data class SettingsUiState(
     val skipSilence: Boolean = false,
     val rememberPlayback: Boolean = true,
     val defaultTab: String = "home",
+    val equalizerEnabled: Boolean = false,
     val watchHistory: List<Video> = emptyList(),
     val isLoading: Boolean = false,
     val showClearHistoryDialog: Boolean = false,
@@ -64,7 +65,8 @@ class SettingsViewModel @Inject constructor(
             pinchToZoom = settingsManager.pinchToZoom,
             skipSilence = settingsManager.skipSilence,
             rememberPlayback = settingsManager.rememberPlayback,
-            defaultTab = settingsManager.defaultTab
+            defaultTab = settingsManager.defaultTab,
+            equalizerEnabled = settingsManager.equalizerEnabled
         )
     }
 

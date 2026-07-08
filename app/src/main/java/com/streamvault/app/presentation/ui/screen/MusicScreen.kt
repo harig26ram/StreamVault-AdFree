@@ -1,6 +1,7 @@
 package com.streamvault.app.presentation.ui.screen
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -11,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,32 +27,26 @@ fun MusicScreen(
     ) {
         TopAppBar(
             title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        text = "StreamVault Music",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = "Music",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 22.sp,
+                    letterSpacing = (-0.5).sp
+                )
             },
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background
             ),
-            windowInsets = TopAppBarDefaults.windowInsets
+            windowInsets = WindowInsets(0, 0, 0, 0)
         )
 
         // Tabs
         TabRow(
             selectedTabIndex = selectedTab,
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.primary,
+            divider = {}
         ) {
             tabs.forEachIndexed { index, title ->
                 Tab(
@@ -59,9 +55,12 @@ fun MusicScreen(
                     text = {
                         Text(
                             text = title,
-                            fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal
+                            fontWeight = if (selectedTab == index) FontWeight.SemiBold else FontWeight.Normal,
+                            fontSize = 13.sp
                         )
-                    }
+                    },
+                    selectedContentColor = MaterialTheme.colorScheme.primary,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -86,7 +85,8 @@ private fun MusicHomeContent(onVideoClick: (String) -> Unit) {
             Text(
                 text = "Your Music Mix",
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.5).sp
             )
         }
 
@@ -95,8 +95,9 @@ private fun MusicHomeContent(onVideoClick: (String) -> Unit) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ),
+                shape = MaterialTheme.shapes.medium
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -104,7 +105,8 @@ private fun MusicHomeContent(onVideoClick: (String) -> Unit) {
                 ) {
                     Text(
                         text = "Music features coming soon!",
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = "This section will integrate with YouTube Music API for ad-free music streaming.",
@@ -122,13 +124,14 @@ private fun MusicExploreContent(onVideoClick: (String) -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             Text(
                 text = "Explore Music",
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.5).sp
             )
         }
 
@@ -142,8 +145,9 @@ private fun MusicExploreContent(onVideoClick: (String) -> Unit) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                ),
+                shape = MaterialTheme.shapes.medium
             ) {
                 Text(
                     text = category,
@@ -166,8 +170,8 @@ private fun MusicLibraryContent() {
         Icon(
             imageVector = Icons.Default.LibraryMusic,
             contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            modifier = Modifier.size(56.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
         )
 
         Spacer(modifier = Modifier.height(16.dp))

@@ -4,10 +4,109 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Cat head base (skin/light beige) -->
     <path
-        android:fillColor="#3B82F6"
-        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+        android:fillColor="#FFE0B2"
+        android:pathData="M54,58 C54,58 36,58 36,46 C36,34 44,28 54,28 C64,28 72,34 72,46 C72,58 54,58 54,58Z" />
+
+    <!-- Left ear outer (orange) -->
+    <path
+        android:fillColor="#FF9800"
+        android:pathData="M40,42 L32,22 L50,36Z" />
+
+    <!-- Right ear outer (orange) -->
+    <path
+        android:fillColor="#FF9800"
+        android:pathData="M68,42 L76,22 L58,36Z" />
+
+    <!-- Left ear inner (pink) -->
+    <path
+        android:fillColor="#FFB74D"
+        android:pathData="M41,40 L35,26 L49,37Z" />
+
+    <!-- Right ear inner (pink) -->
+    <path
+        android:fillColor="#FFB74D"
+        android:pathData="M67,40 L73,26 L59,37Z" />
+
+    <!-- Left eye white -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M46,38L46,70L68,54Z" />
+        android:pathData="M44,44 C44,40 48,38 50,40 C52,42 52,46 50,48 C48,50 44,48 44,44Z" />
+
+    <!-- Right eye white -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M58,44 C58,40 62,38 64,40 C66,42 66,46 64,48 C62,50 58,48 58,44Z" />
+
+    <!-- Left eye pupil (dark) -->
+    <path
+        android:fillColor="#1A1A2E"
+        android:pathData="M47,44 C47,42 49,41 50,42 C51,43 51,46 50,47 C49,48 47,46 47,44Z" />
+
+    <!-- Right eye pupil (dark) -->
+    <path
+        android:fillColor="#1A1A2E"
+        android:pathData="M61,44 C61,42 63,41 64,42 C65,43 65,46 64,47 C63,48 61,46 61,44Z" />
+
+    <!-- Left eye highlight -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,42.5 m-1,0 a1,1 0,1 1,2 0 a1,1 0,1 1,-2 0" />
+
+    <!-- Right eye highlight -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M62,42.5 m-1,0 a1,1 0,1 1,2 0 a1,1 0,1 1,-2 0" />
+
+    <!-- Nose (small triangle) -->
+    <path
+        android:fillColor="#E91E63"
+        android:pathData="M54,50 L52.5,48 L55.5,48Z" />
+
+    <!-- Mouth -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#5D4037"
+        android:strokeWidth="0.5"
+        android:pathData="M54,50 Q52,52 50,50.5 M54,50 Q56,52 58,50.5" />
+
+    <!-- Left cheek blush -->
+    <path
+        android:fillColor="#FF80AB"
+        android:pathData="M39,48 m-3.5,0 a3.5,2.5 0,1 1,7 0 a3.5,2.5 0,1 1,-7 0"
+        android:fillAlpha="0.5" />
+
+    <!-- Right cheek blush -->
+    <path
+        android:fillColor="#FF80AB"
+        android:pathData="M69,48 m-3.5,0 a3.5,2.5 0,1 1,7 0 a3.5,2.5 0,1 1,-7 0"
+        android:fillAlpha="0.5" />
+
+    <!-- Whiskers left -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#8D6E63"
+        android:strokeWidth="0.4"
+        android:pathData="M42,48 L30,46 M42,50 L30,50 M42,52 L30,54" />
+
+    <!-- Whiskers right -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#8D6E63"
+        android:strokeWidth="0.4"
+        android:pathData="M66,48 L78,46 M66,50 L78,50 M66,52 L78,54" />
+
+    <!-- Play button (purple, centered) -->
+    <path
+        android:fillColor="#9C27B0"
+        android:pathData="M51,54 L51,66 L61,60Z" />
+
+    <!-- Play button highlight -->
+    <path
+        android:fillColor="#CE93D8"
+        android:pathData="M52,56 L52,63 L57,59.5Z"
+        android:fillAlpha="0.4" />
+
 </vector>

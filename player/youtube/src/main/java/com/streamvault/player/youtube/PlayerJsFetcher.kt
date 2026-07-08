@@ -41,14 +41,14 @@ class PlayerJsFetcher {
             conn.readTimeout = 15000
             conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
 
-            val reader = BufferedReader(InputStreamReader(conn.inputStream, "UTF-8"))
-            val sb = StringBuilder()
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                sb.append(line).append("\n")
+            BufferedReader(InputStreamReader(conn.inputStream, "UTF-8")).use { reader ->
+                val sb = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    sb.append(line).append("\n")
+                }
+                sb.toString()
             }
-            reader.close()
-            sb.toString()
         } catch (e: Exception) {
             null
         }

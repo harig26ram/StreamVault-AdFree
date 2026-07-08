@@ -31,36 +31,48 @@ class StreamUrlExtractor(
     fun extract(
         responseJson: String,
         cipherOperations: List<CipherDecryptor.CipherOp>,
-        nTransformOp: NParamDecryptor.NTransformOp
+        nTransformOp: NParamDecryptor.NTransformOp?
     ): List<DecryptedStreamFormat> {
         val gson = Gson()
         val json = gson.fromJson(responseJson, JsonObject::class.java)
-        val streamingData = json.getAsJsonObject("streamingData") ?: return emptyList()
+        val streamingData = json.getAsJsonObject("streamingData") ?: run {
+            android.util.Log.d("StreamUrlExtractor", "extract: streamingData is NULL")
+            return emptyList()
+        }
 
         val allFormats = mutableListOf<DecryptedStreamFormat>()
         val formats = streamingData.getAsJsonArray("formats")
         val adaptiveFormats = streamingData.getAsJsonArray("adaptiveFormats")
 
+        android.util.Log.d("StreamUrlExtractor", "extract: formats=${formats?.size() ?: 0}, adaptiveFormats=${adaptiveFormats?.size() ?: 0}, cipherOps=${cipherOperations.size}, nTransform=${nTransformOp != null}")
+
         if (formats != null) {
             for (element in formats) {
                 val fmt = element.asJsonObject
+                val hasUrl = fmt.get("url")?.asString != null
+                val hasCipher = fmt.get("signatureCipher")?.asString != null || fmt.get("cipher")?.asString != null
+                android.util.Log.d("StreamUrlExtractor", "  format: itag=${fmt.get("itag")?.asInt}, hasUrl=$hasUrl, hasCipher=$hasCipher, mimeType=${fmt.get("mimeType")?.asString?.take(30)}")
                 decryptFormat(fmt, cipherOperations, nTransformOp)?.let { allFormats.add(it) }
             }
         }
         if (adaptiveFormats != null) {
             for (element in adaptiveFormats) {
                 val fmt = element.asJsonObject
+                val hasUrl = fmt.get("url")?.asString != null
+                val hasCipher = fmt.get("signatureCipher")?.asString != null || fmt.get("cipher")?.asString != null
+                android.util.Log.d("StreamUrlExtractor", "  adaptive: itag=${fmt.get("itag")?.asInt}, hasUrl=$hasUrl, hasCipher=$hasCipher, mimeType=${fmt.get("mimeType")?.asString?.take(30)}")
                 decryptFormat(fmt, cipherOperations, nTransformOp)?.let { allFormats.add(it) }
             }
         }
 
+        android.util.Log.d("StreamUrlExtractor", "extract: returning ${allFormats.size} decrypted formats")
         return allFormats
     }
 
     fun extract(
         streamingData: YouTubeStreamingData,
         cipherOperations: List<CipherDecryptor.CipherOp>,
-        nTransformOp: NParamDecryptor.NTransformOp
+        nTransformOp: NParamDecryptor.NTransformOp?
     ): List<DecryptedStreamFormat> {
         val allFormats = mutableListOf<DecryptedStreamFormat>()
 
@@ -77,7 +89,7 @@ class StreamUrlExtractor(
     fun extractFromResponse(
         response: YouTubePlayerResponse,
         cipherOperations: List<CipherDecryptor.CipherOp>,
-        nTransformOp: NParamDecryptor.NTransformOp
+        nTransformOp: NParamDecryptor.NTransformOp?
     ): List<DecryptedStreamFormat> {
         val sd = response.streamingData ?: return emptyList()
         return extract(sd, cipherOperations, nTransformOp)
@@ -103,7 +115,7 @@ class StreamUrlExtractor(
     private fun decryptFormat(
         json: JsonObject,
         cipherOps: List<CipherDecryptor.CipherOp>,
-        nTransformOp: NParamDecryptor.NTransformOp
+        nTransformOp: NParamDecryptor.NTransformOp?
     ): DecryptedStreamFormat? {
         val itag = json.get("itag")?.asInt ?: return null
         val mimeType = json.get("mimeType")?.asString ?: return null
@@ -135,7 +147,7 @@ class StreamUrlExtractor(
     private fun decryptFormat(
         fmt: YouTubeFormat,
         cipherOps: List<CipherDecryptor.CipherOp>,
-        nTransformOp: NParamDecryptor.NTransformOp
+        nTransformOp: NParamDecryptor.NTransformOp?
     ): DecryptedStreamFormat? {
         val itag = fmt.itag ?: return null
         val mimeType = fmt.mimeType ?: return null
@@ -171,9 +183,15 @@ class StreamUrlExtractor(
         val cipherStr = json.get("signatureCipher")?.asString
             ?: json.get("cipher")?.asString
 
-        if (cipherStr == null || cipherStr.isBlank()) return null
+        if (cipherStr == null || cipherStr.isBlank()) {
+            android.util.Log.d("StreamUrlExtractor", "resolveUrl: no url, no cipher")
+            return null
+        }
 
-        return decryptCipherUrl(cipherStr, cipherOps)
+        android.util.Log.d("StreamUrlExtractor", "resolveUrl: decrypting cipher (cipherStr len=${cipherStr.length}, ops=${cipherOps.size})")
+        val result = decryptCipherUrl(cipherStr, cipherOps)
+        android.util.Log.d("StreamUrlExtractor", "resolveUrl: decrypted url starts with=${result.take(100)}")
+        return result
     }
 
     private fun resolveUrl(fmt: YouTubeFormat, cipherOps: List<CipherDecryptor.CipherOp>): String? {
@@ -198,7 +216,8 @@ class StreamUrlExtractor(
         return "$url$separator$sp=$decryptedSig"
     }
 
-    private fun resolveNParam(url: String, nTransformOp: NParamDecryptor.NTransformOp): String {
+    private fun resolveNParam(url: String, nTransformOp: NParamDecryptor.NTransformOp?): String {
+        if (nTransformOp == null) return url
         val uri = java.net.URI(url)
         val query = uri.query ?: return url
         val params = parseQueryString(query)

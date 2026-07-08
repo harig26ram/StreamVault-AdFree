@@ -64,6 +64,26 @@ class SettingsManager @Inject constructor(
         get() = prefs.getBoolean("remember_playback", true)
         set(value) = prefs.edit().putBoolean("remember_playback", value).apply()
 
+    var equalizerEnabled: Boolean
+        get() = prefs.getBoolean("equalizer_enabled", false)
+        set(value) = prefs.edit().putBoolean("equalizer_enabled", value).apply()
+
+    var equalizerPreset: Int
+        get() = prefs.getInt("equalizer_preset", -1)
+        set(value) = prefs.edit().putInt("equalizer_preset", value).apply()
+
+    var bassBoost: Short
+        get() = prefs.getInt("bass_boost", 0).toShort()
+        set(value) = prefs.edit().putInt("bass_boost", value.toInt()).apply()
+
+    var virtualizer: Short
+        get() = prefs.getInt("virtualizer", 0).toShort()
+        set(value) = prefs.edit().putInt("virtualizer", value.toInt()).apply()
+
+    var equalizerBandLevels: String
+        get() = prefs.getString("equalizer_band_levels", "") ?: ""
+        set(value) = prefs.edit().putString("equalizer_band_levels", value).apply()
+
     fun registerPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
         prefs.registerOnSharedPreferenceChangeListener(listener)
     }

@@ -12,6 +12,7 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
@@ -26,27 +27,81 @@ object NetworkModule {
         .setLenient()
         .create()
 
+    private const val INNERTUBE_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+
+    @Volatile
+    var visitorData: String? = null
+
+    @Volatile
+    var innerTubeApiKey: String? = null
+
+    private val refreshLock = Any()
+
     @Provides
     @Singleton
-    fun provideOkHttpClient(authManager: AuthManager): OkHttpClient {
-        val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+    @Named("youtube")
+    fun provideYouTubeOkHttpClient(authManager: AuthManager): OkHttpClient {
+        val clientBuilder = OkHttpClient.Builder()
+
+        if (com.streamvault.app.BuildConfig.DEBUG) {
+            val logging = HttpLoggingInterceptor().apply {
+                level = HttpLoggingInterceptor.Level.BASIC
+            }
+            clientBuilder.addInterceptor(logging)
         }
 
-        return OkHttpClient.Builder()
-            .addInterceptor(logging)
-            .addInterceptor { chain ->
-                val builder = chain.request().newBuilder()
-                    .addHeader("User-Agent", "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip")
-                    .addHeader("Accept-Language", "en-US,en;q=0.9")
+        clientBuilder.addInterceptor { chain ->
+            val original = chain.request()
+            val url = original.url
 
-                val token = authManager.getAccessToken()
-                if (!token.isNullOrBlank()) {
-                    builder.addHeader("Authorization", "Bearer $token")
-                }
-
-                chain.proceed(builder.build())
+            val newUrlBuilder = if (url.encodedPath.startsWith("/youtubei/v1/")) {
+                val effectiveKey = innerTubeApiKey ?: INNERTUBE_API_KEY
+                url.newBuilder()
+                    .addQueryParameter("key", effectiveKey)
+            } else {
+                url.newBuilder()
             }
+
+            val newUrl = newUrlBuilder.build()
+
+            val builder = original.newBuilder()
+                .url(newUrl)
+                .header("User-Agent", "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Content-Type", "application/json")
+
+            val accessToken = authManager.getAccessToken()
+            if (!accessToken.isNullOrEmpty()) {
+                builder.header("Authorization", "Bearer $accessToken")
+            }
+
+            visitorData?.let {
+                builder.header("X-Goog-Visitor-Data", it)
+            }
+
+            chain.proceed(builder.build())
+        }
+
+        clientBuilder.addInterceptor { chain ->
+            val request = chain.proceed(chain.request())
+
+            if (request.code == 401) {
+                request.close()
+                synchronized(refreshLock) {
+                    val newToken = runBlocking { authManager.refreshAccessToken() }
+                    if (newToken != null) {
+                        val newRequest = chain.request().newBuilder()
+                            .header("Authorization", "Bearer $newToken")
+                            .build()
+                        return@addInterceptor chain.proceed(newRequest)
+                    }
+                }
+            }
+
+            request
+        }
+
+        return clientBuilder
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
@@ -57,8 +112,19 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    @Named("general")
+    fun provideGeneralOkHttpClient(): OkHttpClient {
+        return OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
+    }
+
+    @Provides
+    @Singleton
     @Named("youtube")
-    fun provideRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
+    fun provideRetrofit(@Named("youtube") okHttpClient: OkHttpClient, gson: Gson): Retrofit {
         return Retrofit.Builder()
             .baseUrl("https://www.youtube.com/")
             .client(okHttpClient)

@@ -8,9 +8,10 @@ import androidx.room.RoomDatabase
         WatchHistoryEntity::class,
         SubscriptionEntity::class,
         WatchLaterEntity::class,
+        DownloadEntity::class,
         SettingEntity::class
     ],
-    version = 2,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

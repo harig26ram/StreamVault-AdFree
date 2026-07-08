@@ -82,7 +82,7 @@ fun LoginScreen(
 
         if (uiState.isAuthenticated && uiState.userProfile != null) {
             // Logged in state
-            val profile = uiState.userProfile!!
+            val profile = uiState.userProfile ?: return
 
             // Avatar
             if (profile.photoUrl != null) {

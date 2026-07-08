@@ -17,7 +17,8 @@ data class WatchHistoryEntity(
     @ColumnInfo(name = "view_count") val viewCount: String = "",
     @ColumnInfo(name = "published_time") val publishedTime: String = "",
     @ColumnInfo(name = "video_url") val videoUrl: String = "",
-    @ColumnInfo(name = "watched_at") val watchedAt: Long = System.currentTimeMillis()
+    @ColumnInfo(name = "watched_at") val watchedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "last_position_ms", defaultValue = "0") val lastPositionMs: Long = 0
 ) {
     fun toDomain(): Video = Video(
         id = videoId,
@@ -33,7 +34,7 @@ data class WatchHistoryEntity(
     )
 
     companion object {
-        fun fromDomain(video: Video): WatchHistoryEntity = WatchHistoryEntity(
+        fun fromDomain(video: Video, lastPositionMs: Long = 0): WatchHistoryEntity = WatchHistoryEntity(
             videoId = video.id,
             title = video.title,
             channelName = video.channelName,
@@ -43,7 +44,8 @@ data class WatchHistoryEntity(
             duration = video.duration,
             viewCount = video.viewCount,
             publishedTime = video.publishedTime,
-            videoUrl = video.videoUrl ?: ""
+            videoUrl = video.videoUrl ?: "",
+            lastPositionMs = lastPositionMs
         )
     }
 }
@@ -85,6 +87,25 @@ data class WatchLaterEntity(
         )
     }
 }
+
+enum class DownloadStatus {
+    PENDING, DOWNLOADING, PAUSED, COMPLETED, FAILED
+}
+
+@Entity(tableName = "downloads")
+data class DownloadEntity(
+    @PrimaryKey @ColumnInfo(name = "video_id") val videoId: String,
+    @ColumnInfo(name = "title") val title: String = "",
+    @ColumnInfo(name = "channel_name") val channelName: String = "",
+    @ColumnInfo(name = "thumbnail_url") val thumbnailUrl: String = "",
+    @ColumnInfo(name = "audio_url") val audioUrl: String = "",
+    @ColumnInfo(name = "video_url") val videoUrl: String = "",
+    @ColumnInfo(name = "file_path") val filePath: String = "",
+    @ColumnInfo(name = "file_size") val fileSize: Long = 0,
+    @ColumnInfo(name = "download_status") val downloadStatus: String = DownloadStatus.PENDING.name,
+    @ColumnInfo(name = "progress") val progress: Int = 0,
+    @ColumnInfo(name = "downloaded_at") val downloadedAt: Long = System.currentTimeMillis()
+)
 
 @Entity(tableName = "app_settings")
 data class SettingEntity(

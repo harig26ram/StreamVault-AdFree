@@ -14,6 +14,8 @@ class AudioTrackBufferProvider {
 
     val isInitialized: Boolean get() = audioTrack?.state == AudioTrack.STATE_INITIALIZED
 
+    val audioSessionId: Int get() = audioTrack?.audioSessionId ?: 0
+
     fun setup(
         sampleRate: Int,
         channelConfig: Int = AudioFormat.CHANNEL_OUT_STEREO,
@@ -22,7 +24,7 @@ class AudioTrackBufferProvider {
         release()
         val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
         if (minBufferSize == AudioTrack.ERROR_BAD_VALUE) return false
-        val bufferSize = minBufferSize.coerceAtLeast(4096) * 4
+        val bufferSize = minBufferSize.coerceAtLeast(16384) * 8
         val attrs = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
@@ -66,12 +68,15 @@ class AudioTrackBufferProvider {
 
     fun write(data: ByteBuffer, offset: Int, size: Int): Int {
         val track = audioTrack ?: return AudioTrack.ERROR_INVALID_OPERATION
-        val bytes = ByteArray(size)
+        val available = data.capacity() - offset
+        val safeSize = minOf(size, available.coerceAtLeast(0))
+        if (safeSize <= 0) return 0
+        val bytes = ByteArray(safeSize)
         val pos = data.position()
         data.position(offset)
-        data.get(bytes, 0, size)
+        data.get(bytes, 0, safeSize)
         data.position(pos)
-        return track.write(bytes, 0, size)
+        return track.write(bytes, 0, safeSize)
     }
 
     fun write(bytes: ByteArray, offset: Int, size: Int): Int {

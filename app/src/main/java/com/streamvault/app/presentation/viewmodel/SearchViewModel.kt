@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.streamvault.app.data.repository.VisitorDataBootstrapper
 import com.streamvault.app.domain.model.FeedItem
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.usecase.AddToWatchLaterUseCase
@@ -32,6 +33,7 @@ data class SearchUiState(
 class SearchViewModel @Inject constructor(
     private val searchUseCase: SearchUseCase,
     private val addToWatchLaterUseCase: AddToWatchLaterUseCase,
+    private val visitorDataBootstrapper: VisitorDataBootstrapper,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -81,6 +83,7 @@ class SearchViewModel @Inject constructor(
         if (query.isBlank()) return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            visitorDataBootstrapper.ensureVisitorData()
             searchUseCase(query).fold(
                 onSuccess = { result ->
                     val newHistory = (_uiState.value.searchHistory + query).distinct().take(20)

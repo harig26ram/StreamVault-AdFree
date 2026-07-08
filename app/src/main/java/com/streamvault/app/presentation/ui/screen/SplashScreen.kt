@@ -33,7 +33,7 @@ fun SplashScreen(onTimeout: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F0F23)),
+            .background(Color(0xFF0A0A1A)),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -44,24 +44,24 @@ fun SplashScreen(onTimeout: () -> Unit) {
                 .scale(scale.value)
         ) {
             Text(
-                text = "StreamVault",
+                text = "FreedomPlay",
                 style = MaterialTheme.typography.displayLarge.copy(
                     fontWeight = FontWeight.Bold,
                     fontSize = 42.sp,
                     letterSpacing = (-1).sp
                 ),
-                color = Color.White
+                color = Color(0xFF00E5FF)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Ad-Free",
+                text = "Freedom to Watch",
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Medium,
                     letterSpacing = 4.sp
                 ),
-                color = Color(0xFFE11D48)
+                color = Color(0xFFB388FF)
             )
         }
     }

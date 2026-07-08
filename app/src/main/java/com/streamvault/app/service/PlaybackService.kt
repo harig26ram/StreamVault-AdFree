@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
@@ -16,7 +17,6 @@ import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.streamvault.app.R
-import com.streamvault.player.core.PlayerConfig
 import com.streamvault.player.core.PlayerEngine
 import com.streamvault.player.core.PlayerState
 import kotlinx.coroutines.CoroutineScope
@@ -33,18 +33,18 @@ class PlaybackService : Service() {
     private var engine: PlayerEngine? = null
     private var mediaSession: MediaSession? = null
     private var currentState: PlayerState = PlayerState.Idle
+    private var audioManager: AudioManager? = null
+    private var audioFocusListener: AudioManager.OnAudioFocusChangeListener? = null
+    private var hasAudioFocus = false
+    private var title: String = ""
+    private var channelName: String = ""
 
     private val mediaButtonReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 ACTION_PLAY -> engine?.play()
                 ACTION_PAUSE -> engine?.pause()
-                ACTION_STOP -> {
-                    engine?.stop()
-                    mediaSession?.isActive = false
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
-                }
+                ACTION_STOP -> stopPlayback()
             }
         }
     }
@@ -58,12 +58,33 @@ class PlaybackService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        engine = PlayerEngine(PlayerConfig())
-        mediaSession = MediaSession(this, "StreamVault").apply {
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+            when (focusChange) {
+                AudioManager.AUDIOFOCUS_LOSS -> {
+                    engine?.pause()
+                    abandonAudioFocus()
+                }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                    engine?.pause()
+                }
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    engine?.getEqualizerManager()?.let { /* duck volume via equalizer if needed */ }
+                }
+                AudioManager.AUDIOFOCUS_GAIN -> {
+                    engine?.play()
+                }
+            }
+        }
+        mediaSession = MediaSession(this, "FreedomPlay").apply {
             setCallback(object : MediaSession.Callback() {
-                override fun onPlay() { engine?.play() }
+                override fun onPlay() {
+                    requestAudioFocus()
+                    engine?.play()
+                }
                 override fun onPause() { engine?.pause() }
                 override fun onSeekTo(pos: Long) { engine?.seekTo(pos) }
+                override fun onStop() { stopPlayback() }
             })
             isActive = true
         }
@@ -75,50 +96,93 @@ class PlaybackService : Service() {
         registerReceiver(mediaButtonReceiver, filter)
     }
 
-    fun play(url: String, title: String, channelName: String, isProgressive: Boolean = true) {
-        val player = engine ?: return
-        if (isProgressive) {
-            player.loadStreams(null, null, url)
-        } else {
-            player.loadStreams(url, url, null)
-        }
-
+    fun attachEngine(playerEngine: PlayerEngine) {
+        engine = playerEngine
         serviceScope.launch {
-            player.state.collect { state ->
+            playerEngine.state.collect { state ->
                 currentState = state
-                if (state is PlayerState.Playing || state is PlayerState.Buffering) {
-                    val pos = player.position.first()
-                    mediaSession?.setPlaybackState(
-                        PlaybackState.Builder()
-                            .setState(PlaybackState.STATE_PLAYING, pos, 1f)
-                            .setActions(
-                                PlaybackState.ACTION_PLAY or
-                                PlaybackState.ACTION_PAUSE or
-                                PlaybackState.ACTION_SEEK_TO
-                            )
-                            .build()
-                    )
+                updateMediaSessionState()
+                if (title.isNotEmpty()) {
+                    updateNotification(title, channelName)
                 }
-                updateNotification(title, channelName)
+                if (state is PlayerState.Ended) {
+                    abandonAudioFocus()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
         }
+    }
+
+    fun playVideo(
+        playerEngine: PlayerEngine,
+        videoTitle: String,
+        videoChannelName: String,
+        thumbnailUrl: String? = null
+    ) {
+        title = videoTitle
+        channelName = videoChannelName
+        attachEngine(playerEngine)
+        requestAudioFocus()
 
         mediaSession?.setMetadata(
             MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, title)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, channelName)
+                .putString(MediaMetadata.METADATA_KEY_TITLE, videoTitle)
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, videoChannelName)
+                .putString(MediaMetadata.METADATA_KEY_ALBUM_ART, thumbnailUrl)
+                .putLong(MediaMetadata.METADATA_KEY_DURATION, playerEngine.duration.value)
                 .build()
         )
 
-        startForeground(NOTIFICATION_ID, buildNotification(title, channelName))
+        startForeground(NOTIFICATION_ID, buildNotification(videoTitle, videoChannelName))
     }
 
-    fun stop() {
-        engine?.stop()
-        engine?.release()
+    fun stopPlayback() {
+        abandonAudioFocus()
+        engine?.pause()
         mediaSession?.isActive = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    private fun requestAudioFocus() {
+        if (hasAudioFocus) return
+        val result = audioManager?.requestAudioFocus(
+            audioFocusListener!!,
+            AudioManager.STREAM_MUSIC,
+            AudioManager.AUDIOFOCUS_GAIN
+        )
+        hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+
+    private fun abandonAudioFocus() {
+        if (!hasAudioFocus) return
+        audioManager?.abandonAudioFocus(audioFocusListener)
+        hasAudioFocus = false
+    }
+
+    private fun updateMediaSessionState() {
+        val playbackState = when (currentState) {
+            is PlayerState.Playing -> PlaybackState.STATE_PLAYING
+            is PlayerState.Buffering -> PlaybackState.STATE_BUFFERING
+            is PlayerState.Paused -> PlaybackState.STATE_PAUSED
+            is PlayerState.Ended -> PlaybackState.STATE_STOPPED
+            is PlayerState.Error -> PlaybackState.STATE_ERROR
+            else -> PlaybackState.STATE_NONE
+        }
+        val pos = engine?.position?.value ?: 0L
+        val speed = engine?.config?.playbackSpeed ?: 1f
+        mediaSession?.setPlaybackState(
+            PlaybackState.Builder()
+                .setState(playbackState, pos, speed)
+                .setActions(
+                    PlaybackState.ACTION_PLAY or
+                    PlaybackState.ACTION_PAUSE or
+                    PlaybackState.ACTION_SEEK_TO or
+                    PlaybackState.ACTION_STOP
+                )
+                .build()
+        )
     }
 
     private fun createNotificationChannel() {
@@ -197,21 +261,18 @@ class PlaybackService : Service() {
         when (intent?.action) {
             ACTION_PLAY -> engine?.play()
             ACTION_PAUSE -> engine?.pause()
-            ACTION_STOP -> {
-                engine?.stop()
-                mediaSession?.isActive = false
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-            }
+            ACTION_STOP -> stopPlayback()
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
+        abandonAudioFocus()
         mediaSession?.release()
         mediaSession = null
-        engine?.release()
-        engine = null
+        try {
+            unregisterReceiver(mediaButtonReceiver)
+        } catch (_: Exception) {}
         serviceScope.cancel()
         super.onDestroy()
     }

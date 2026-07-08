@@ -15,7 +15,7 @@ import androidx.core.content.ContextCompat
 import com.streamvault.app.data.local.SettingsManager
 import com.streamvault.app.presentation.navigation.MainNavGraph
 import com.streamvault.app.presentation.navigation.Screen
-import com.streamvault.app.presentation.ui.theme.StreamVaultTheme
+import com.streamvault.app.presentation.ui.theme.FreedomPlayTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -25,6 +25,11 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var settingsManager: SettingsManager
 
+    var pipModeActive by mutableStateOf(false)
+        private set
+
+    private var onPipModeChanged: ((Boolean) -> Unit)? = null
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _: Boolean -> }
@@ -32,7 +37,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Request POST_NOTIFICATIONS on Android 13+ to avoid install warning
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -57,21 +61,50 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            StreamVaultTheme(
+            LaunchedEffect(Unit) {
+                onPipModeChanged = { isInPip ->
+                    pipModeActive = isInPip
+                }
+            }
+
+            FreedomPlayTheme(
                 darkTheme = isDarkMode,
                 amoledMode = isAmoledMode
             ) {
-                val startDestination = when (settingsManager.defaultTab) {
-                    "search" -> Screen.Search.route
-                    "subscriptions" -> Screen.Subscriptions.route
-                    "library" -> Screen.Library.route
-                    "music" -> Screen.Music.route
+                val startDestination = when {
+                    intent?.hasExtra("navigate_to") == true &&
+                        intent.getStringExtra("navigate_to") == "subscriptions" -> Screen.Subscriptions.route
+                    settingsManager.defaultTab == "search" -> Screen.Search.route
+                    settingsManager.defaultTab == "subscriptions" -> Screen.Subscriptions.route
+                    settingsManager.defaultTab == "library" -> Screen.Library.route
+                    settingsManager.defaultTab == "music" -> Screen.Trending.route
                     else -> Screen.Home.route
                 }
                 MainNavGraph(
                     startDestination = startDestination,
                     deepLinkUri = deepLinkUri
                 )
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: android.content.res.Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        onPipModeChanged?.invoke(isInPictureInPictureMode)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val navigateTo = intent.getStringExtra("navigate_to")
+        if (navigateTo == "player") {
+            val videoId = intent.getStringExtra("videoId")
+            if (videoId != null) {
+                // Navigation will be handled by NavGraph observing the intent
             }
         }
     }

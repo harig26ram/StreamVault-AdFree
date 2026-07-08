@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
@@ -175,7 +176,8 @@ class DecoderThread(
                     val buf = codec.getInputBuffer(inputIndex) ?: continue
                     buf.clear()
                     tempBuffer.clear()
-                    val bytesRead = dataSource.readRaw(tempBuffer, inputChunkSize)
+                    val maxRead = minOf(inputChunkSize, buf.capacity())
+                    val bytesRead = dataSource.readRaw(tempBuffer, maxRead)
                     if (bytesRead < 0) {
                         codec.queueInputBuffer(
                             inputIndex, 0, 0, 0L,
@@ -185,9 +187,10 @@ class DecoderThread(
                         eosReceived = true
                     } else {
                         tempBuffer.flip()
-                        buf.put(tempBuffer)
+                        val safeRead = minOf(bytesRead, buf.capacity())
+                        buf.put(tempBuffer.apply { limit(minOf(limit(), safeRead)) })
                         codec.queueInputBuffer(
-                            inputIndex, 0, bytesRead, 0L, 0
+                            inputIndex, 0, safeRead, 0L, 0
                         )
                     }
                 }
@@ -234,8 +237,7 @@ class DecoderThread(
                             val waitNs = targetNs - now
                             if (waitNs > 0L) {
                                 val waitMs = waitNs / 1_000_000L
-                                val waitNsRem = (waitNs % 1_000_000L).toInt()
-                                Thread.sleep(waitMs.coerceAtMost(10000), waitNsRem.coerceIn(0, 999999))
+                                delay(waitMs.coerceAtMost(10000))
                             }
                         }
                         codec.releaseOutputBuffer(outputIndex, true)
@@ -244,11 +246,14 @@ class DecoderThread(
                         if (audioTrackProvider != null && audioTrackProvider.isInitialized) {
                             val outputBuffer = codec.getOutputBuffer(outputIndex)
                             if (outputBuffer != null) {
-                                audioTrackProvider.write(
-                                    outputBuffer,
-                                    bufferInfo.offset,
-                                    bufferInfo.size
-                                )
+                                val safeSize = minOf(bufferInfo.size, outputBuffer.capacity() - bufferInfo.offset)
+                                if (safeSize > 0) {
+                                    audioTrackProvider.write(
+                                        outputBuffer,
+                                        bufferInfo.offset,
+                                        safeSize
+                                    )
+                                }
                             }
                         }
                         codec.releaseOutputBuffer(outputIndex, false)

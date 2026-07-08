@@ -118,7 +118,13 @@ data class PlayerResponse(
     val playabilityStatus: PlayabilityStatus?,
     val captions: CaptionsResponse?,
     val videoQuality: String?,
-    val trackingParams: String?
+    val trackingParams: String?,
+    val jsUrl: String? = null,
+    val assets: PlayerAssets? = null
+)
+
+data class PlayerAssets(
+    val js: String? = null
 )
 
 data class CaptionsResponse(

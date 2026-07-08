@@ -12,6 +12,11 @@ val secretsProperties = Properties().apply {
     if (file.exists()) load(file.inputStream())
 }
 
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) load(file.inputStream())
+}
+
 android {
     namespace = "com.streamvault.app"
     compileSdk = 36
@@ -28,11 +33,21 @@ android {
         buildConfigField("String", "WEB_CLIENT_SECRET", "\"${secretsProperties.getProperty("WEB_CLIENT_SECRET", "")}\"")
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file(localProperties.getProperty("RELEASE_STORE_FILE", "streamvault-release.jks"))
+            storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD", "")
+            keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS", "streamvault")
+            keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD", "")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -42,7 +57,7 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
 
     buildFeatures {
@@ -58,6 +73,10 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
     }
 }
 
@@ -87,6 +106,8 @@ dependencies {
     implementation("com.google.dagger:hilt-android:$hiltVersion")
     kapt("com.google.dagger:hilt-compiler:$hiltVersion")
     implementation("androidx.hilt:hilt-navigation-compose:1.1.0")
+    implementation("androidx.hilt:hilt-work:1.1.0")
+    kapt("androidx.hilt:hilt-compiler:1.1.0")
 
     // Room
     implementation("androidx.room:room-runtime:$roomVersion")
@@ -118,12 +139,29 @@ dependencies {
     // Google Sign-In
     implementation("com.google.android.gms:play-services-auth:21.3.0")
 
+    // Chromecast
+    implementation("com.google.android.gms:play-services-cast-framework:21.4.0")
+
     // DataStore for token storage
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+
+    // WorkManager for background downloads
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("androidx.hilt:hilt-work:1.1.0")
+    kapt("androidx.hilt:hilt-compiler:1.1.0")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // Test
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito:mockito-core:5.4.0")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.1.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.test:core:1.5.0")
+    testImplementation("androidx.arch.core:core-testing:2.2.0")
 }
 
 kapt {

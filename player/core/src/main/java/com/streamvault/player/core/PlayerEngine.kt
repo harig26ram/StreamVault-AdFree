@@ -1,5 +1,6 @@
 package com.streamvault.player.core
 
+import android.util.Log
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.view.Surface
@@ -17,6 +18,9 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 
 class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
+    companion object {
+        private const val TAG = "PlayerEngine"
+    }
     private val _state = MutableStateFlow<PlayerState>(PlayerState.Idle)
     val state: StateFlow<PlayerState> = _state.asStateFlow()
 
@@ -29,6 +33,9 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
     private val _bufferedPercent = MutableStateFlow(0)
     val bufferedPercent: StateFlow<Int> = _bufferedPercent.asStateFlow()
 
+    private val _audioSessionId = MutableStateFlow(0)
+    val audioSessionId: StateFlow<Int> = _audioSessionId.asStateFlow()
+
     private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var playbackClock = PlaybackClock()
     private var audioTrackProvider = AudioTrackBufferProvider()
@@ -40,15 +47,19 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
     private var videoDecoder: DecoderThread? = null
     private var audioDecoder: DecoderThread? = null
 
-    private var extractor: MediaExtractor? = null
+    private var videoExtractor: MediaExtractor? = null
+    private var audioExtractor: MediaExtractor? = null
 
     private val isPlaying = AtomicBoolean(false)
     private val isPaused = AtomicBoolean(false)
     private var isProgressive = false
 
     private var positionUpdateJob: Job? = null
+    private var silenceDetectionJob: Job? = null
+    private val equalizerManager = EqualizerManager()
 
     fun setSurface(surface: Surface?) {
+        Log.d(TAG, "setSurface: surface=${surface != null}")
         this.surface = surface
     }
 
@@ -63,6 +74,7 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         videoUrl: String?,
         progressiveUrl: String? = null
     ) {
+        Log.d(TAG, "loadStreams: audio=${audioUrl?.take(80)}, video=${videoUrl?.take(80)}, progressive=${progressiveUrl?.take(80)}, surface=${surface != null}")
         if (_state.value !is PlayerState.Idle && _state.value !is PlayerState.Error) {
             stop()
         }
@@ -74,25 +86,34 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         scope.launch(Dispatchers.IO) {
             try {
                 if (isProgressive) {
-                    loadProgressive(progressiveUrl!!)
+                    if (progressiveUrl == null) {
+                        Log.e(TAG, "loadStreams: progressiveUrl is null but isProgressive=true")
+                        _state.value = PlayerState.Error("Progressive URL is null")
+                        return@launch
+                    }
+                    loadProgressive(progressiveUrl)
                 } else {
                     loadAdaptive(audioUrl ?: "", videoUrl ?: "")
                 }
+                Log.d(TAG, "loadStreams: load completed successfully")
             } catch (e: Exception) {
+                Log.e(TAG, "loadStreams: FAILED", e)
                 _state.value = PlayerState.Error("Load failed: ${e.message}", e)
             }
         }
     }
 
     private suspend fun loadProgressive(url: String) {
-        val ext = MediaExtractor()
-        ext.setDataSource(url)
-        extractor = ext
+        Log.d(TAG, "loadProgressive: starting with url=${url.take(80)}")
+        val probeExt = MediaExtractor()
+        probeExt.setDataSource(url)
 
-        val videoTrackIdx = findTrackIndex(ext, true)
-        val audioTrackIdx = findTrackIndex(ext, false)
+        val videoTrackIdx = findTrackIndex(probeExt, true)
+        val audioTrackIdx = findTrackIndex(probeExt, false)
+        Log.d(TAG, "loadProgressive: videoTrackIdx=$videoTrackIdx, audioTrackIdx=$audioTrackIdx")
 
         if (videoTrackIdx < 0 && audioTrackIdx < 0) {
+            probeExt.release()
             throw IllegalStateException("No supported tracks in progressive stream")
         }
 
@@ -100,17 +121,25 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         var audioDur = 0L
 
         if (videoTrackIdx >= 0) {
-            ext.selectTrack(videoTrackIdx)
-            val fmt = ext.getTrackFormat(videoTrackIdx)
+            val vExt = MediaExtractor()
+            vExt.setDataSource(url)
+            vExt.selectTrack(videoTrackIdx)
+            videoExtractor = vExt
+            val fmt = vExt.getTrackFormat(videoTrackIdx)
             videoDur = if (fmt.containsKey(MediaFormat.KEY_DURATION)) fmt.getLong(MediaFormat.KEY_DURATION) else 0L
             videoDur /= 1000L
             val mime = fmt.getString(MediaFormat.KEY_MIME) ?: "video/avc"
-            val ds = MediaExtractorDataSource(ext, mime, fmt, true)
+            val ds = MediaExtractorDataSource(vExt, mime, fmt, true)
             videoFetcher = ds
+            val videoFormat = ds.open()
+            if (videoFormat == null) {
+                Log.e(TAG, "Failed to open video data source")
+                throw IllegalStateException("Failed to open video data source")
+            }
             videoDecoder = DecoderThread(
                 name = "prog-video",
                 mimeType = mime,
-                formatInfo = ds.open()!!,
+                formatInfo = videoFormat,
                 dataSource = ds,
                 isVideo = true,
                 surface = surface,
@@ -122,17 +151,37 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         }
 
         if (audioTrackIdx >= 0) {
-            ext.selectTrack(audioTrackIdx)
-            val fmt = ext.getTrackFormat(audioTrackIdx)
+            val aExt = MediaExtractor()
+            aExt.setDataSource(url)
+            aExt.selectTrack(audioTrackIdx)
+            audioExtractor = aExt
+            val fmt = aExt.getTrackFormat(audioTrackIdx)
             audioDur = if (fmt.containsKey(MediaFormat.KEY_DURATION)) fmt.getLong(MediaFormat.KEY_DURATION) else 0L
             audioDur /= 1000L
             val mime = fmt.getString(MediaFormat.KEY_MIME) ?: "audio/mp4a-latm"
-            val ds = MediaExtractorDataSource(ext, mime, fmt, false)
+            val ds = MediaExtractorDataSource(aExt, mime, fmt, false)
             audioFetcher = ds
+
+            if (!audioTrackProvider.isInitialized) {
+                val sr = if (fmt.containsKey(MediaFormat.KEY_SAMPLE_RATE)) fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE) else 44100
+                val chCount = if (fmt.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT) else 2
+                val cc = if (chCount == 1) {
+                    android.media.AudioFormat.CHANNEL_OUT_MONO
+                } else {
+                    android.media.AudioFormat.CHANNEL_OUT_STEREO
+                }
+                audioTrackProvider.setup(sr, cc)
+            }
+
+            val audioFormat = ds.open()
+            if (audioFormat == null) {
+                Log.e(TAG, "Failed to open audio data source")
+                throw IllegalStateException("Failed to open audio data source")
+            }
             audioDecoder = DecoderThread(
                 name = "prog-audio",
                 mimeType = mime,
-                formatInfo = ds.open()!!,
+                formatInfo = audioFormat,
                 dataSource = ds,
                 isVideo = false,
                 audioTrackProvider = audioTrackProvider,
@@ -143,22 +192,29 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
             )
         }
 
+        probeExt.release()
         _duration.value = maxOf(videoDur, audioDur) / 1000L
+        initEqualizerIfNeeded()
         videoDecoder?.start()
         audioDecoder?.start()
         playbackClock.start()
     }
 
     private suspend fun loadAdaptive(audioUrl: String, videoUrl: String) {
+        Log.d(TAG, "loadAdaptive: audio=${audioUrl.take(80)}, video=${videoUrl.take(80)}")
+        Log.d(TAG, "loadAdaptive: surface=${surface != null}")
+
         val audioFetch = HttpStreamFetcher(audioUrl)
         audioFetcher = audioFetch
         val audioFormat = audioFetch.open()
             ?: throw IllegalStateException("Could not parse audio stream")
+        Log.d(TAG, "loadAdaptive: audio parsed, mimeType=${audioFormat.mimeType}, sampleRate=${audioFormat.sampleRate}, channels=${audioFormat.channelCount}")
 
         val videoFetch = HttpStreamFetcher(videoUrl)
         videoFetcher = videoFetch
         val videoFormat = videoFetch.open()
             ?: throw IllegalStateException("Could not parse video stream")
+        Log.d(TAG, "loadAdaptive: video parsed, mimeType=${videoFormat.mimeType}, width=${videoFormat.width}, height=${videoFormat.height}")
 
         _duration.value = maxOf(videoFormat.durationUs, audioFormat.durationUs) / 1000L
 
@@ -201,9 +257,12 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         audioDecoder?.start()
         videoDecoder?.start()
         playbackClock.start()
+        initEqualizerIfNeeded()
+        Log.d(TAG, "loadAdaptive: decoders started, clock started, duration=${_duration.value}ms")
     }
 
     fun play() {
+        Log.d(TAG, "play: state=${_state.value}, isPaused=${isPaused.get()}, isPlaying=${isPlaying.get()}")
         if (_state.value is PlayerState.Playing) return
         if (_state.value is PlayerState.Ended) {
             seekTo(0L)
@@ -218,6 +277,7 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         audioTrackProvider.play()
         _state.value = PlayerState.Playing
         startPositionUpdates()
+        startSilenceDetection()
     }
 
     fun pause() {
@@ -229,6 +289,7 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         videoDecoder?.pause()
         audioDecoder?.pause()
         _state.value = PlayerState.Paused
+        silenceDetectionJob?.cancel()
     }
 
     fun seekTo(positionMs: Long) {
@@ -239,12 +300,9 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
                 val targetUs = targetMs * 1000L
                 playbackClock.startAt(targetUs, config.playbackSpeed)
 
-                if (isProgressive && extractor != null) {
-                    val ext = extractor!!
-                    val videoIdx = findTrackIndex(ext, true)
-                    if (videoIdx >= 0) {
-                        ext.seekTo(targetUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
-                    }
+                if (isProgressive) {
+                    videoExtractor?.seekTo(targetUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                    audioExtractor?.seekTo(targetUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
                     videoDecoder?.requestSeek()
                     audioDecoder?.requestSeek()
                 } else {
@@ -275,6 +333,7 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         isPlaying.set(false)
         isPaused.set(false)
         positionUpdateJob?.cancel()
+        silenceDetectionJob?.cancel()
         playbackClock.reset()
         videoDecoder?.stop()
         audioDecoder?.stop()
@@ -283,8 +342,10 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
         audioDecoder?.release()
         videoFetcher?.close()
         audioFetcher?.close()
-        extractor?.release()
-        extractor = null
+        videoExtractor?.release()
+        audioExtractor?.release()
+        videoExtractor = null
+        audioExtractor = null
         videoDecoder = null
         audioDecoder = null
         videoFetcher = null
@@ -298,6 +359,8 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
 
     fun release() {
         stop()
+        EqualizerManagerHolder.unregister()
+        equalizerManager.release()
         audioTrackProvider.release()
         scope.cancel()
         scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -334,4 +397,48 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig()) {
             }
         }
     }
+
+    private fun startSilenceDetection() {
+        silenceDetectionJob?.cancel()
+        if (!config.skipSilenceEnabled) return
+        silenceDetectionJob = scope.launch(Dispatchers.Main) {
+            var lastPosition = _position.value
+            var lastChangeTime = System.currentTimeMillis()
+            while (isActive) {
+                delay(100)
+                val currentPos = _position.value
+                val now = System.currentTimeMillis()
+                if (currentPos != lastPosition) {
+                    lastPosition = currentPos
+                    lastChangeTime = now
+                } else if (_state.value is PlayerState.Playing) {
+                    val silenceDuration = now - lastChangeTime
+                    if (silenceDuration > config.silenceSkipDurationMs) {
+                        val skipTo = currentPos + 1000L
+                        Log.d(TAG, "Silence detected for ${silenceDuration}ms, skipping to $skipTo")
+                        seekTo(skipTo)
+                        lastPosition = skipTo
+                        lastChangeTime = System.currentTimeMillis()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun initEqualizerIfNeeded() {
+        try {
+            val sid = audioTrackProvider.audioSessionId
+            _audioSessionId.value = sid
+            if (sid != 0 && config.equalizerEnabled) {
+                equalizerManager.initialize(sid)
+                equalizerManager.setEnabled(true)
+                EqualizerManagerHolder.register(equalizerManager, sid)
+                Log.d(TAG, "Equalizer initialized with sessionId=$sid")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to init equalizer: ${e.message}")
+        }
+    }
+
+    fun getEqualizerManager(): EqualizerManager = equalizerManager
 }

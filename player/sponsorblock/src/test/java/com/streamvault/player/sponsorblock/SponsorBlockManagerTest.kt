@@ -52,7 +52,7 @@ class SponsorBlockManagerTest {
         )
         `when`(repository.getSegments(any())).thenReturn(Result.success(segments))
         manager.loadSegments("video123")
-        val action = manager.checkSegments(PlayerState.Playing, 15000L)
+        val action = manager.checkSegments("video123", PlayerState.Playing, 15000L)
         assertTrue(action is SponsorBlockAction.Skip)
         assertEquals("sponsor", (action as SponsorBlockAction.Skip).segment.category)
     }
@@ -76,20 +76,20 @@ class SponsorBlockManagerTest {
         assertTrue(first.isSuccess)
         val second = manager.loadSegments("cached_video")
         assertTrue(second.isSuccess)
-        assertEquals(1, manager.checkSegments(PlayerState.Playing, 15000L)?.let {
+        assertEquals(1, manager.checkSegments("cached_video", PlayerState.Playing, 15000L)?.let {
             if (it is SponsorBlockAction.Skip) 1 else 0
         })
     }
 
     @Test
     fun `checkSegments returns None when not playing`() {
-        val result = manager.checkSegments(PlayerState.Idle, 1000L)
+        val result = manager.checkSegments("video123", PlayerState.Idle, 1000L)
         assertNull(result)
     }
 
     @Test
     fun `checkSegments returns None when no segments loaded`() {
-        val result = manager.checkSegments(PlayerState.Playing, 1000L)
+        val result = manager.checkSegments("unknown_video", PlayerState.Playing, 1000L)
         assertEquals(SponsorBlockAction.None, result)
     }
 }

@@ -1,8 +1,10 @@
 package com.streamvault.app.presentation.ui.screen
 
 import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -10,6 +12,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material3.*
@@ -17,17 +20,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.streamvault.app.R
 import com.streamvault.app.auth.AuthManager
 import com.streamvault.app.auth.AuthState
+import com.streamvault.app.cast.CastPlayer
+import com.streamvault.app.cast.CastSessionManager
 import com.streamvault.app.domain.model.FeedItem
+import com.streamvault.app.presentation.ui.components.CastDialog
+import com.streamvault.app.presentation.ui.components.CastIconButton
 import com.streamvault.app.presentation.ui.components.LoadingIndicator
 import com.streamvault.app.presentation.ui.components.VideoCard
 import com.streamvault.app.presentation.viewmodel.HomeViewModel
@@ -40,13 +50,20 @@ fun HomeScreen(
     onPlaylistClick: (String) -> Unit,
     onSettingsClick: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
-    authManager: AuthManager = hiltViewModel<com.streamvault.app.presentation.viewmodel.SplashViewModel>().getAuthManager()
+    authManager: AuthManager = hiltViewModel<com.streamvault.app.presentation.viewmodel.SplashViewModel>().getAuthManager(),
+    castSessionManager: CastSessionManager = hiltViewModel<com.streamvault.app.presentation.viewmodel.SplashViewModel>().getCastSessionManager(),
+    castPlayer: CastPlayer = hiltViewModel<com.streamvault.app.presentation.viewmodel.SplashViewModel>().getCastPlayer()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val authState by authManager.authState.collectAsState()
     val userProfile by authManager.userProfile.collectAsState()
     val listState = rememberLazyListState()
     val context = LocalContext.current
+
+    val isCastConnected by castSessionManager.isConnected.collectAsState()
+    val castDeviceName by castSessionManager.currentDeviceName.collectAsState()
+    val isCastAvailable by castSessionManager.isAvailable.collectAsState()
+    var showCastDialog by remember { mutableStateOf(false) }
 
     // Load more when scrolling to bottom
     LaunchedEffect(listState) {
@@ -64,24 +81,31 @@ fun HomeScreen(
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
-        // Top bar - respects system insets for notification bar
+        // Minimal top bar
         CenterAlignedTopAppBar(
             title = {
                 Text(
-                    text = "StreamVault",
+                    text = stringResource(R.string.app_name),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                    fontSize = 20.sp,
+                    letterSpacing = (-0.5).sp
                 )
             },
             actions = {
+                if (isCastAvailable) {
+                    CastIconButton(
+                        isConnected = isCastConnected,
+                        onClick = { showCastDialog = true }
+                    )
+                }
                 IconButton(onClick = onSettingsClick) {
                     if (authState is AuthState.Authenticated && userProfile?.photoUrl != null) {
                         AsyncImage(
                             model = userProfile?.photoUrl,
                             contentDescription = "Profile",
                             modifier = Modifier
-                                .size(28.dp)
+                                .size(30.dp)
                                 .clip(CircleShape),
                             contentScale = ContentScale.Crop
                         )
@@ -97,7 +121,7 @@ fun HomeScreen(
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.background
             ),
-            windowInsets = TopAppBarDefaults.windowInsets
+            windowInsets = WindowInsets(0, 0, 0, 0)
         )
 
         // Content
@@ -112,16 +136,56 @@ fun HomeScreen(
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Text(
                             text = "Something went wrong",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.error
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
-
-                        Button(onClick = { viewModel.refresh() }) {
-                            Text("Retry")
+                        Text(
+                            text = uiState.error ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = { viewModel.refresh() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text("Retry", color = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+                }
+            }
+            !uiState.isLoading && uiState.feedItems.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "No content available",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Pull down to refresh or try again later",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { viewModel.refresh() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text("Retry", color = MaterialTheme.colorScheme.onPrimary)
                         }
                     }
                 }
@@ -149,28 +213,38 @@ fun HomeScreen(
                                         context.startActivity(Intent.createChooser(shareIntent, "Share via"))
                                     }
                                 )
+                                // Subtle divider between videos
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(
+                                        horizontal = 16.dp,
+                                        vertical = 2.dp
+                                    ),
+                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                    thickness = 0.5.dp
+                                )
                             }
                             is FeedItem.Playlist -> {
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onPlaylistClick(feedItem.playlist.id) },
+                                        .clickable { onPlaylistClick(feedItem.playlist.id) }
+                                        .padding(horizontal = 12.dp, vertical = 4.dp),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surface
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainer
                                     ),
-                                    shape = RoundedCornerShape(0.dp)
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            .padding(10.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .size(120.dp, 68.dp)
-                                                .clip(RoundedCornerShape(8.dp))
+                                                .size(100.dp, 56.dp)
+                                                .clip(RoundedCornerShape(6.dp))
                                         ) {
                                             AsyncImage(
                                                 model = feedItem.playlist.thumbnailUrl,
@@ -179,27 +253,26 @@ fun HomeScreen(
                                                 contentScale = ContentScale.Crop
                                             )
                                             Surface(
-                                                modifier = Modifier
-                                                    .align(Alignment.Center),
-                                                color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.8f),
+                                                modifier = Modifier.align(Alignment.Center),
+                                                color = Color.Black.copy(alpha = 0.7f),
                                                 shape = RoundedCornerShape(4.dp)
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.PlaylistPlay,
                                                     contentDescription = null,
                                                     modifier = Modifier.padding(4.dp),
-                                                    tint = MaterialTheme.colorScheme.inverseOnSurface
+                                                    tint = Color.White
                                                 )
                                             }
                                         }
                                         Column(
                                             modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            verticalArrangement = Arrangement.spacedBy(3.dp)
                                         ) {
                                             Text(
                                                 text = feedItem.playlist.title,
                                                 style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium,
+                                                fontWeight = FontWeight.SemiBold,
                                                 maxLines = 2,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -218,11 +291,12 @@ fun HomeScreen(
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onChannelClick(feedItem.channel.id) },
+                                        .clickable { onChannelClick(feedItem.channel.id) }
+                                        .padding(horizontal = 12.dp, vertical = 4.dp),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surface
+                                        containerColor = MaterialTheme.colorScheme.surfaceContainer
                                     ),
-                                    shape = RoundedCornerShape(0.dp)
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -235,18 +309,18 @@ fun HomeScreen(
                                             model = feedItem.channel.avatarUrl,
                                             contentDescription = feedItem.channel.name,
                                             modifier = Modifier
-                                                .size(48.dp)
+                                                .size(44.dp)
                                                 .clip(CircleShape),
                                             contentScale = ContentScale.Crop
                                         )
                                         Column(
                                             modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            verticalArrangement = Arrangement.spacedBy(3.dp)
                                         ) {
                                             Text(
                                                 text = feedItem.channel.name,
                                                 style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium,
+                                                fontWeight = FontWeight.SemiBold,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -265,9 +339,9 @@ fun HomeScreen(
                                 LazyRow(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
+                                        .padding(vertical = 4.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 16.dp)
+                                    contentPadding = PaddingValues(horizontal = 12.dp)
                                 ) {
                                     items(
                                         items = feedItem.items,
@@ -298,12 +372,13 @@ fun HomeScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(16.dp),
+                                    .padding(20.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(24.dp),
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 2.dp
                                 )
                             }
                         }
@@ -311,5 +386,18 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    if (showCastDialog && isCastAvailable) {
+        CastDialog(
+            isConnected = isCastConnected,
+            deviceName = castDeviceName,
+            onDismiss = { showCastDialog = false },
+            onConnect = { castSessionManager.startSession() },
+            onDisconnect = {
+                castPlayer.stop()
+                castSessionManager.stopSession()
+            }
+        )
     }
 }

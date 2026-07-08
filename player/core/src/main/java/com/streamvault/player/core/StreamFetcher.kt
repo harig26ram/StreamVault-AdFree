@@ -93,8 +93,12 @@ class HttpStreamFetcher(
         inputStream = stream
         dataInput = DataInputStream(stream)
         streamOffset = 0L
-        formatInfo = parseInitSegment()
-        return formatInfo
+        return try {
+            parseInitSegment().also { formatInfo = it }
+        } catch (e: Exception) {
+            close()
+            throw e
+        }
     }
 
     override suspend fun read(buffer: ByteBuffer): Int {
@@ -128,13 +132,18 @@ class HttpStreamFetcher(
             val req = Request.Builder().url(url)
                 .header("Range", "bytes=$targetByteOffset-")
                 .build()
-            val resp = client.newCall(req).execute()
-            response = resp
-            val body = resp.body ?: return
-            val stream = BufferedInputStream(body.byteStream(), 128 * 1024)
-            inputStream = stream
-            dataInput = DataInputStream(stream)
-            streamOffset = targetByteOffset
+            try {
+                val resp = client.newCall(req).execute()
+                response = resp
+                val body = resp.body ?: return
+                val stream = BufferedInputStream(body.byteStream(), 128 * 1024)
+                inputStream = stream
+                dataInput = DataInputStream(stream)
+                streamOffset = targetByteOffset
+            } catch (e: Exception) {
+                close()
+                throw e
+            }
             return
         }
         close()

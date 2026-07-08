@@ -11,16 +11,19 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.streamvault.app.BuildConfig
+import com.streamvault.app.R
 import com.streamvault.app.presentation.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onNavigateToLogin: () -> Unit = {},
+    onNavigateToEqualizer: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -164,6 +167,12 @@ fun SettingsScreen(
                     checked = uiState.sponsorBlock,
                     onCheckedChange = { viewModel.setSponsorBlock(it) }
                 )
+                SettingsItem(
+                    title = "Audio Equalizer",
+                    subtitle = if (uiState.equalizerEnabled) "On" else "Off",
+                    icon = Icons.Default.Equalizer,
+                    onClick = onNavigateToEqualizer
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -193,7 +202,7 @@ fun SettingsScreen(
                     onClick = { viewModel.showAboutDialog() }
                 )
                 SettingsItem(
-                    title = "StreamVault",
+                    title = stringResource(R.string.app_name),
                     subtitle = "Ad-free YouTube streaming",
                     icon = Icons.Default.Star,
                     onClick = { viewModel.showAboutDialog() }
@@ -244,7 +253,7 @@ fun SettingsScreen(
     }
 
     if (uiState.showDefaultTabDialog) {
-        val tabs = listOf("Home" to "home", "Search" to "search", "Subscriptions" to "subscriptions", "Library" to "library", "Music" to "music")
+        val tabs = listOf("Home" to "home", "Search" to "search", "Subscriptions" to "subscriptions", "Library" to "library", "Trending" to "trending")
         AlertDialog(
             onDismissRequest = { viewModel.dismissDefaultTabDialog() },
             title = { Text("Default Tab", fontWeight = FontWeight.Bold) },
@@ -306,7 +315,7 @@ fun SettingsScreen(
     if (uiState.showAboutDialog) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissAboutDialog() },
-            title = { Text("StreamVault", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.app_name), fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Version ${BuildConfig.VERSION_NAME}")

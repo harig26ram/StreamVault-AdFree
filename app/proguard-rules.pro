@@ -3,34 +3,39 @@
 -keepattributes SourceFile,LineNumberTable
 -keep public class * extends java.lang.Exception
 
-# Keep Kotlin serialization
--keepattributes *Annotation*, InnerClasses
--dontnote kotlinx.serialization.AnnotationsKt
-
--keepclassmembers @kotlinx.serialization.Serializable class ** {
-    *** Companion;
+# Strip all android.util.Log calls in release build
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+    public static int w(...);
+    public static int e(...);
 }
--keepclasseswithmembers class **$$serializer {
-    *** INSTANCE;
-}
 
-# Keep Retrofit interfaces
+# Keep Retrofit interfaces and generic type signatures
 -keep,allowobfuscation interface * {
     @retrofit2.http.* <methods>;
 }
+-keepattributes Signature
+-keepattributes Exceptions
+-keepattributes RuntimeVisibleAnnotations
+-keepattributes RuntimeVisibleParameterAnnotations
+-keepclassmembers,allowshrinking,allowobfuscation interface * {
+    @retrofit2.http.* <methods>;
+}
+-dontwarn retrofit2.KotlinExtensions
+-dontwarn retrofit2.KotlinExtensions$*
 
 # OkHttp
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn javax.annotation.**
 
-# ExoPlayer
--keep class com.google.android.exoplayer2.** { *; }
--dontwarn com.google.android.exoplayer2.**
-
 # Hilt
 -keep class dagger.hilt.** { *; }
 -keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$FragmentContextWrapper { *; }
+-keep class * extends dagger.hilt.android.internal.managers.ViewComponentManager$ActivityContextWrapper { *; }
 
 # Room
 -keep class * extends androidx.room.RoomDatabase
@@ -48,3 +53,17 @@
 
 # Room entities
 -keep class com.streamvault.app.data.local.* { *; }
+
+# Manifest-registered components (services, receivers)
+-keep class com.streamvault.app.service.** { *; }
+
+# Player modules
+-keep class com.streamvault.player.** { *; }
+-dontwarn com.streamvault.player.**
+
+# MediaCodec / MediaExtractor
+-dontwarn android.media.**
+
+# Cast SDK
+-keep class com.google.android.gms.cast.** { *; }
+-dontwarn com.google.android.gms.cast.**
