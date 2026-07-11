@@ -25,12 +25,14 @@ android {
         applicationId = "com.streamvault.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 4
-        versionName = "4.0.0"
+        versionCode = 6
+        versionName = "6.0.0"
         vectorDrawables.useSupportLibrary = true
 
         buildConfigField("String", "WEB_CLIENT_ID", "\"${secretsProperties.getProperty("WEB_CLIENT_ID", "")}\"")
         buildConfigField("String", "WEB_CLIENT_SECRET", "\"${secretsProperties.getProperty("WEB_CLIENT_SECRET", "")}\"")
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -81,7 +83,7 @@ android {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2024.02.00")
+    val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     val hiltVersion = "2.50"
     val roomVersion = "2.6.1"
     val retrofitVersion = "2.9.0"
@@ -147,6 +149,7 @@ dependencies {
 
     // WorkManager for background downloads
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation("com.google.guava:guava:32.1.3-android")
     implementation("androidx.hilt:hilt-work:1.1.0")
     kapt("androidx.hilt:hilt-compiler:1.1.0")
 
@@ -162,6 +165,20 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation("androidx.test:core:1.5.0")
     testImplementation("androidx.arch.core:core-testing:2.2.0")
+
+    // Android Instrumented Tests
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    androidTestImplementation("androidx.test:rules:1.5.0")
+    androidTestImplementation("androidx.test:runner:1.5.2")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:1.6.0")
+    androidTestImplementation("androidx.compose.ui:ui-test-manifest:1.6.0")
+    androidTestImplementation("com.google.dagger:hilt-android-testing:2.50")
+    kaptAndroidTest("com.google.dagger:hilt-compiler:2.50")
+    androidTestImplementation("org.mockito:mockito-android:5.4.0")
+    androidTestImplementation("org.mockito.kotlin:mockito-kotlin:5.1.0")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    androidTestImplementation("androidx.arch.core:core-testing:2.2.0")
 }
 
 kapt {
