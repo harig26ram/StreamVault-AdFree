@@ -11,7 +11,7 @@ import androidx.room.RoomDatabase
         DownloadEntity::class,
         SettingEntity::class
     ],
-    version = 6,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -16,6 +16,9 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +42,9 @@ import com.streamvault.app.domain.model.FeedItem
 import com.streamvault.app.presentation.ui.components.CastDialog
 import com.streamvault.app.presentation.ui.components.CastIconButton
 import com.streamvault.app.presentation.ui.components.LoadingIndicator
+import com.streamvault.app.presentation.ui.components.MTricolorDivider
+import com.streamvault.app.presentation.ui.components.BrandRingAvatar
+import com.streamvault.app.presentation.ui.components.TopBarGradientOverlay
 import com.streamvault.app.presentation.ui.components.VideoCard
 import com.streamvault.app.presentation.viewmodel.HomeViewModel
 
@@ -78,51 +84,60 @@ fun HomeScreen(
         }
     }
 
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = { viewModel.refresh() },
+        state = rememberPullToRefreshState()
+    ) {
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
-        // Minimal top bar
-        CenterAlignedTopAppBar(
-            title = {
-                Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    letterSpacing = (-0.5).sp
-                )
-            },
-            actions = {
-                if (isCastAvailable) {
-                    CastIconButton(
-                        isConnected = isCastConnected,
-                        onClick = { showCastDialog = true }
+        // Top app bar with soft brand gradient overlay
+        Box {
+            TopBarGradientOverlay(height = 120.dp)
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp,
+                        letterSpacing = (-0.5).sp
                     )
-                }
-                IconButton(onClick = onSettingsClick) {
-                    if (authState is AuthState.Authenticated && userProfile?.photoUrl != null) {
-                        AsyncImage(
-                            model = userProfile?.photoUrl,
-                            contentDescription = "Profile",
-                            modifier = Modifier
-                                .size(30.dp)
-                                .clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = "Account",
-                            tint = MaterialTheme.colorScheme.onSurface
+                },
+                actions = {
+                    if (isCastAvailable) {
+                        CastIconButton(
+                            isConnected = isCastConnected,
+                            onClick = { showCastDialog = true }
                         )
                     }
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.background
-            ),
-            windowInsets = WindowInsets(0, 0, 0, 0)
-        )
+                    IconButton(onClick = onSettingsClick) {
+                        if (authState is AuthState.Authenticated && userProfile?.photoUrl != null) {
+                            BrandRingAvatar(
+                                model = userProfile?.photoUrl,
+                                contentDescription = "Profile",
+                                size = 30.dp,
+                                ringWidth = 2.dp,
+                                onClick = onSettingsClick
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Account",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent
+                ),
+                windowInsets = WindowInsets(0, 0, 0, 0)
+            )
+        }
+
+        MTricolorDivider()
 
         // Content
         when {
@@ -228,11 +243,12 @@ fun HomeScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { onPlaylistClick(feedItem.playlist.id) }
-                                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = MaterialTheme.colorScheme.surfaceContainer
                                     ),
-                                    shape = RoundedCornerShape(10.dp)
+                                    shape = RoundedCornerShape(14.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -292,11 +308,12 @@ fun HomeScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { onChannelClick(feedItem.channel.id) }
-                                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = MaterialTheme.colorScheme.surfaceContainer
                                     ),
-                                    shape = RoundedCornerShape(10.dp)
+                                    shape = RoundedCornerShape(14.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -305,13 +322,12 @@ fun HomeScreen(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        AsyncImage(
+                                        BrandRingAvatar(
                                             model = feedItem.channel.avatarUrl,
                                             contentDescription = feedItem.channel.name,
-                                            modifier = Modifier
-                                                .size(44.dp)
-                                                .clip(CircleShape),
-                                            contentScale = ContentScale.Crop
+                                            size = 44.dp,
+                                            ringWidth = 2.5.dp,
+                                            onClick = { onChannelClick(feedItem.channel.id) }
                                         )
                                         Column(
                                             modifier = Modifier.weight(1f),
@@ -386,6 +402,7 @@ fun HomeScreen(
                 }
             }
         }
+    }
     }
 
     if (showCastDialog && isCastAvailable) {

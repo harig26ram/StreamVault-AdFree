@@ -3,12 +3,17 @@ package com.streamvault.app.presentation.ui.screen
 import android.app.PictureInPictureParams
 import android.app.PendingIntent
 import android.content.Intent
+import android.net.Uri
 import android.graphics.SurfaceTexture
 import android.util.Rational
 import android.view.Surface
 import android.view.TextureView
+import android.view.View
 import android.view.WindowManager
+import android.content.pm.ActivityInfo
 import androidx.activity.ComponentActivity
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,6 +43,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.streamvault.app.R
@@ -127,6 +134,7 @@ fun PlayerScreen(
         } catch (_: Exception) { }
     }
 
+
     LaunchedEffect(uiState.showVolumeIndicator) {
         if (uiState.showVolumeIndicator) {
             delay(1000)
@@ -159,6 +167,25 @@ fun PlayerScreen(
             showControls = false
         } else {
             viewModel.exitPipMode()
+        }
+    }
+
+    DisposableEffect(uiState.isFullscreen) {
+        val window = act?.window
+        val windowInsetsController = window?.let { WindowInsetsControllerCompat(it, act.window.decorView) }
+        if (uiState.isFullscreen) {
+            act?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            windowInsetsController?.let { controller ->
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            act?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            windowInsetsController?.show(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            act?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            windowInsetsController?.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -239,8 +266,7 @@ fun PlayerScreen(
                     }
                 },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
+                    .let { if (uiState.isFullscreen) it.fillMaxSize() else it.fillMaxWidth().aspectRatio(16f / 9f) }
             )
 
             GestureOverlay(
@@ -256,8 +282,7 @@ fun PlayerScreen(
                     }
                 },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(16f / 9f)
+                    .let { if (uiState.isFullscreen) it.fillMaxSize() else it.fillMaxWidth().aspectRatio(16f / 9f) }
             )
 
             if (captionText != null) {
@@ -284,14 +309,18 @@ fun PlayerScreen(
             }
 
             if (showControls) {
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .let { if (uiState.isFullscreen) it.fillMaxSize() else it.fillMaxWidth().aspectRatio(16f / 9f).align(Alignment.TopCenter) }
+                ) {
+                    // Top gradient bar
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(60.dp)
+                            .height(80.dp)
                             .background(
                                 Brush.verticalGradient(
-                                    listOf(Color.Black.copy(alpha = 0.8f), Color.Transparent)
+                                    listOf(Color.Black.copy(alpha = 0.85f), Color.Black.copy(alpha = 0.4f), Color.Transparent)
                                 )
                             )
                             .align(Alignment.TopCenter)
@@ -318,18 +347,25 @@ fun PlayerScreen(
                             )
                         }
 
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .padding(horizontal = 60.dp)
-                                .clickable { uiState.video?.let { onChannelClick(it.channelId) } },
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            uiState.video?.let { video ->
+                        uiState.video?.let { video ->
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .padding(start = 52.dp, end = 160.dp)
+                                    .clickable { onChannelClick(video.channelId) }
+                            ) {
+                                Text(
+                                    text = video.title,
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                                 Text(
                                     text = video.channelName,
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    fontSize = 13.sp,
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
@@ -338,34 +374,20 @@ fun PlayerScreen(
                         }
 
                         Row(
-                            modifier = Modifier.align(Alignment.CenterEnd),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Surface(
                                 onClick = { showCaptionSheet = true },
-                                modifier = Modifier.size(36.dp),
+                                modifier = Modifier.size(34.dp),
                                 shape = CircleShape,
                                 color = Color.Black.copy(alpha = 0.5f)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(
                                         text = "CC",
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            Surface(
-                                onClick = { showQualitySheet = true },
-                                modifier = Modifier.size(36.dp),
-                                shape = CircleShape,
-                                color = Color.Black.copy(alpha = 0.5f)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = uiState.qualityLabel,
                                         color = Color.White,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
@@ -374,8 +396,28 @@ fun PlayerScreen(
                             }
 
                             Surface(
+                                onClick = { showQualitySheet = true },
+                                modifier = Modifier
+                                    .height(34.dp)
+                                    .widthIn(min = 34.dp)
+                                    .padding(horizontal = 8.dp),
+                                shape = RoundedCornerShape(17.dp),
+                                color = Color.Black.copy(alpha = 0.5f)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = uiState.qualityLabel,
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            Surface(
                                 onClick = { showSpeedSheet = true },
-                                modifier = Modifier.size(36.dp),
+                                modifier = Modifier.size(34.dp),
                                 shape = CircleShape,
                                 color = Color.Black.copy(alpha = 0.5f)
                             ) {
@@ -383,7 +425,7 @@ fun PlayerScreen(
                                     Text(
                                         text = if (uiState.playbackSpeed == 1f) "1x" else "${uiState.playbackSpeed}x",
                                         color = Color.White,
-                                        fontSize = 11.sp,
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
@@ -391,80 +433,12 @@ fun PlayerScreen(
                         }
                     }
 
-                    IconButton(
-                        onClick = {
-                            try {
-                                val act = context as? ComponentActivity
-                                act?.let {
-                    val pipActions = listOf(
-                        android.app.RemoteAction(
-                            android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_pause),
-                            "Pause", "Pause", PendingIntent.getBroadcast(context, 10, Intent("com.streamvault.app.ACTION_PAUSE"), PendingIntent.FLAG_IMMUTABLE)
-                        ),
-                        android.app.RemoteAction(
-                            android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_play),
-                            "Play", "Play", PendingIntent.getBroadcast(context, 11, Intent("com.streamvault.app.ACTION_PLAY"), PendingIntent.FLAG_IMMUTABLE)
-                        )
-                    )
-                                    val params = PictureInPictureParams.Builder()
-                                        .setAspectRatio(Rational(16, 9))
-                                        .setActions(pipActions)
-                                        .build()
-                                    it.enterPictureInPictureMode(params)
-                                }
-                            } catch (_: Exception) { }
-                        },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 64.dp, end = 8.dp)
-                            .size(40.dp)
-                            .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                    ) {
-                        Icon(
-                            Icons.Default.PictureInPictureAlt,
-                            "Picture in Picture",
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { viewModel.toggleQueueSheet() },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 112.dp, end = 8.dp)
-                            .size(40.dp)
-                            .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                    ) {
-                        Icon(
-                            Icons.Default.QueueMusic,
-                            stringResource(R.string.queue),
-                            tint = Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onEqualizerClick,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 160.dp, end = 8.dp)
-                            .size(40.dp)
-                            .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                    ) {
-                        Icon(
-                            Icons.Default.Equalizer,
-                            stringResource(R.string.equalizer),
-                            tint = if (uiState.equalizerEnabled) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
+                    // Transport controls (center)
                     Row(
                         modifier = Modifier
-                            .align(Alignment.Center)
                             .fillMaxWidth()
-                            .padding(horizontal = 40.dp),
+                            .align(Alignment.Center)
+                            .padding(horizontal = 48.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -476,7 +450,7 @@ fun PlayerScreen(
                                 .size(52.dp)
                                 .background(Color.Black.copy(alpha = 0.35f), CircleShape)
                         ) {
-                            Icon(Icons.Default.Replay10, "Rewind", tint = Color.White, modifier = Modifier.size(30.dp))
+                            Icon(Icons.Default.Replay10, "Rewind 10s", tint = Color.White, modifier = Modifier.size(30.dp))
                         }
 
                         IconButton(
@@ -501,14 +475,15 @@ fun PlayerScreen(
                                 .size(52.dp)
                                 .background(Color.Black.copy(alpha = 0.35f), CircleShape)
                         ) {
-                            Icon(Icons.Default.Forward30, "Forward", tint = Color.White, modifier = Modifier.size(30.dp))
+                            Icon(Icons.Default.Forward30, "Forward 30s", tint = Color.White, modifier = Modifier.size(30.dp))
                         }
                     }
 
+                    // Seek bar (bottom) - thinner
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp)
+                            .height(40.dp)
                             .background(
                                 Brush.verticalGradient(
                                     listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
@@ -553,9 +528,94 @@ fun PlayerScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
-                                .height(28.dp)
+                                .height(12.dp)
                                 .padding(bottom = 4.dp)
                         )
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .statusBarsPadding()
+                            .padding(top = 84.dp, end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(
+                            onClick = { viewModel.toggleFullscreen() },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                                contentDescription = if (uiState.isFullscreen) "Exit fullscreen" else "Fullscreen",
+                                tint = if (uiState.isFullscreen) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                try {
+                                    val act = context as? ComponentActivity
+                                    act?.let {
+                                        val pipActions = listOf(
+                                            android.app.RemoteAction(
+                                                android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_pause),
+                                                "Pause", "Pause", PendingIntent.getBroadcast(context, 10, Intent("com.streamvault.app.ACTION_PAUSE"), PendingIntent.FLAG_IMMUTABLE)
+                                            ),
+                                            android.app.RemoteAction(
+                                                android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_play),
+                                                "Play", "Play", PendingIntent.getBroadcast(context, 11, Intent("com.streamvault.app.ACTION_PLAY"), PendingIntent.FLAG_IMMUTABLE)
+                                            )
+                                        )
+                                        val params = PictureInPictureParams.Builder()
+                                            .setAspectRatio(Rational(16, 9))
+                                            .setActions(pipActions)
+                                            .build()
+                                        it.enterPictureInPictureMode(params)
+                                    }
+                                } catch (_: Exception) { }
+                            },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                        ) {
+                            Icon(
+                                Icons.Default.PictureInPictureAlt,
+                                "Picture in Picture",
+                                tint = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { viewModel.toggleQueueSheet() },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                        ) {
+                            Icon(
+                                Icons.Default.QueueMusic,
+                                stringResource(R.string.queue),
+                                tint = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onEqualizerClick,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                        ) {
+                            Icon(
+                                Icons.Default.Equalizer,
+                                stringResource(R.string.equalizer),
+                                tint = if (uiState.equalizerEnabled) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -626,6 +686,7 @@ fun PlayerScreen(
         val videoPlayerHeightPx = context.resources.displayMetrics.widthPixels * 9f / 16f
         val videoPlayerHeightDp = (videoPlayerHeightPx / context.resources.displayMetrics.density).toInt().coerceAtLeast(200).dp
 
+        if (!uiState.isFullscreen) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -702,9 +763,16 @@ fun PlayerScreen(
                     ) {
                         MiniAction(
                             icon = Icons.Default.ThumbUp,
-                            label = "Like",
+                            label = if (video.likeCount.isNotBlank()) "Like ${video.likeCount}" else "Like",
                             onClick = {
                                 android.widget.Toast.makeText(context, "Liked!", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        MiniAction(
+                            icon = Icons.Default.ThumbDown,
+                            label = "Dislike",
+                            onClick = {
+                                android.widget.Toast.makeText(context, "Disliked!", android.widget.Toast.LENGTH_SHORT).show()
                             }
                         )
                         MiniAction(
@@ -727,12 +795,15 @@ fun PlayerScreen(
                         )
                         MiniAction(
                             icon = Icons.Default.Download,
-                            label = if (uiState.isDownloaded) "Downloaded" else if (uiState.isDownloading) "${uiState.downloadProgress}%" else "Download",
+                            label = if (uiState.isDownloaded) "Downloaded" else if (uiState.isPaused) "Resume" else if (uiState.isDownloading) "${uiState.downloadProgress}%" else "Download",
                             onClick = {
                                 when {
                                     uiState.isDownloaded -> {
                                         viewModel.deleteDownload()
                                         android.widget.Toast.makeText(context, "Download deleted", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                    uiState.isPaused -> {
+                                        viewModel.startDownload()
                                     }
                                     uiState.isDownloading -> {
                                         viewModel.pauseDownload()
@@ -743,11 +814,26 @@ fun PlayerScreen(
                                 }
                             }
                         )
+                        MiniAction(
+                            icon = Icons.Default.OpenInNew,
+                            label = "YouTube",
+                            onClick = {
+                                val videoId = uiState.video?.id ?: return@MiniAction
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$videoId"))
+                                try {
+                                    intent.setPackage("com.google.android.youtube")
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$videoId")))
+                                }
+                            }
+                        )
                     }
 
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.surfaceVariant)
 
                     if (video.description.isNotBlank()) {
+                        var descriptionExpanded by remember { mutableStateOf(false) }
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)
                         ) {
@@ -758,16 +844,69 @@ fun PlayerScreen(
                                 fontSize = 12.sp,
                                 color = dimGray.copy(alpha = 0.8f),
                                 lineHeight = 18.sp,
-                                maxLines = 6,
+                                maxLines = if (descriptionExpanded) Int.MAX_VALUE else 3,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            if (video.description.lines().size > 3 || video.description.length > 120) {
+                                Text(
+                                    text = if (descriptionExpanded) "Show less" else "Show more",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(top = 4.dp)
+                                        .clickable { descriptionExpanded = !descriptionExpanded }
+                                )
+                            }
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.surfaceVariant                        )
+                    }
+                }
+
+                }
+
+                if (uiState.chapters.size >= 2) {
+                    item(key = "chapters") {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text("Chapters", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = dimGray)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            uiState.chapters.forEach { chapter ->
+                                val isCurrent = uiState.position in chapter.startTimeMs..
+                                    (uiState.chapters.getOrNull(uiState.chapters.indexOf(chapter) + 1)?.startTimeMs ?: uiState.duration)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            viewModel.seekTo(chapter.startTimeMs)
+                                        }
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = chapter.formattedTime,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else dimGray.copy(alpha = 0.7f),
+                                        modifier = Modifier.width(52.dp)
+                                    )
+                                    Text(
+                                        text = chapter.title,
+                                        fontSize = 12.sp,
+                                        color = if (isCurrent) MaterialTheme.colorScheme.primary else dimGray.copy(alpha = 0.8f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
                         }
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.surfaceVariant)
                     }
                 }
-            }
 
-            if (uiState.relatedVideos.isNotEmpty()) {
+                if (uiState.relatedVideos.isNotEmpty()) {
                 item(key = "up_next") {
                     Text(
                         text = "Up Next",
@@ -865,6 +1004,7 @@ fun PlayerScreen(
             item(key = "bottom_spacer") {
                 Spacer(modifier = Modifier.height(16.dp))
             }
+        }
         }
     }
 
@@ -1115,27 +1255,30 @@ private fun QueueBottomSheet(
         )
     }
 
-    ModalBottomSheet(
+    Dialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    modifier = Modifier.size(width = 32.dp, height = 4.dp),
-                    shape = RoundedCornerShape(2.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                ) {}
-            }
-        }
+        properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) { onDismiss() },
+            contentAlignment = Alignment.BottomCenter
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.7f)
+                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) { }
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 32.dp)
         ) {
@@ -1345,5 +1488,6 @@ private fun QueueBottomSheet(
                 }
             }
         }
+    }
     }
 }

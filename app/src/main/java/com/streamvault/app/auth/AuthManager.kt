@@ -259,6 +259,20 @@ class AuthManager @Inject constructor(
         }
     }
 
+    fun getUserProfile(): UserProfile? = _userProfile.value
+
+    fun isAuthenticated(): Boolean = _userProfile.value != null
+
+    fun prepareAccountSwitch() {
+        googleSignInClient.signOut().addOnCompleteListener {
+            Log.d(TAG, "Account switch prepared: cached sign-in cleared, picker will show")
+        }
+    }
+
+    fun completeSignIn(task: com.google.android.gms.tasks.Task<GoogleSignInAccount>, scope: CoroutineScope) {
+        handleSignInResult(task, scope)
+    }
+
     fun isSignedIn(): Boolean {
         return GoogleSignIn.getLastSignedInAccount(context) != null
     }
@@ -364,6 +378,7 @@ class AuthManager @Inject constructor(
                 }
             } else {
                 Log.d(TAG, "Silent sign-in failed: ${task.exception?.message}")
+                _authState.value = AuthState.Unauthenticated
             }
         }
     }

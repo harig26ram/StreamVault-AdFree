@@ -27,6 +27,7 @@ data class LibraryUiState(
     val playlists: List<Playlist> = emptyList(),
     val downloads: List<DownloadEntity> = emptyList(),
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val error: String? = null
 )
 
@@ -116,6 +117,19 @@ class LibraryViewModel @Inject constructor(
     }
 
     fun pauseDownload(videoId: String) {
-        downloadManager.pauseDownload(videoId)
+        viewModelScope.launch {
+            downloadManager.pauseDownload(videoId)
+        }
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRefreshing = true, error = null)
+            loadWatchHistory()
+            loadWatchLater()
+            loadPlaylists()
+            loadDownloads()
+            _uiState.value = _uiState.value.copy(isRefreshing = false)
+        }
     }
 }

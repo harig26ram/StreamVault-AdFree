@@ -19,6 +19,29 @@ class DownloadManager @Inject constructor(
 ) {
 
     fun startDownload(video: Video, audioUrl: String, videoUrl: String) {
+        kotlinx.coroutines.runBlocking {
+            val existing = videoDao.getDownload(video.id)
+            if (existing != null && existing.downloadStatus in listOf(DownloadStatus.PAUSED.name, DownloadStatus.FAILED.name)) {
+                videoDao.updateDownloadUrls(video.id, audioUrl, videoUrl)
+                videoDao.updateDownloadStatus(video.id, DownloadStatus.PENDING.name, existing.progress)
+            } else {
+                val entity = DownloadEntity(
+                    videoId = video.id,
+                    title = video.title,
+                    channelName = video.channelName,
+                    thumbnailUrl = video.thumbnailUrl,
+                    audioUrl = audioUrl,
+                    videoUrl = videoUrl,
+                    filePath = "",
+                    fileSize = 0L,
+                    downloadStatus = DownloadStatus.PENDING.name,
+                    progress = 0,
+                    downloadedAt = System.currentTimeMillis()
+                )
+                videoDao.insertDownload(entity)
+            }
+        }
+
         val data = workDataOf(
             DownloadWorker.KEY_VIDEO_ID to video.id,
             DownloadWorker.KEY_TITLE to video.title,
@@ -47,12 +70,14 @@ class DownloadManager @Inject constructor(
             )
     }
 
-    fun pauseDownload(videoId: String) {
+    suspend fun pauseDownload(videoId: String) {
         WorkManager.getInstance(context).cancelUniqueWork("download_$videoId")
+        videoDao.updateDownloadStatus(videoId, DownloadStatus.PAUSED.name, -1)
     }
 
-    fun cancelDownload(videoId: String) {
+    suspend fun cancelDownload(videoId: String) {
         WorkManager.getInstance(context).cancelUniqueWork("download_$videoId")
+        videoDao.updateDownloadStatus(videoId, DownloadStatus.FAILED.name, -1)
     }
 
     fun getDownload(videoId: String): Flow<DownloadEntity?> {
@@ -64,12 +89,14 @@ class DownloadManager @Inject constructor(
     }
 
     suspend fun deleteDownload(videoId: String) {
-        val entity = videoDao.getDownload(videoId) ?: return
-        if (entity.filePath.isNotEmpty()) {
-            try {
-                context.filesDir.resolve(entity.filePath).delete()
-            } catch (_: Exception) {}
-        }
+        WorkManager.getInstance(context).cancelUniqueWork("download_$videoId")
+        if (videoDao.getDownload(videoId) == null) return
+        try {
+            val dir = context.filesDir.resolve("downloads")
+            dir.resolve("${videoId}.mp4").delete()
+            dir.resolve("${videoId}_audio.tmp").delete()
+            dir.resolve("${videoId}_video.tmp").delete()
+        } catch (_: Exception) {}
         videoDao.deleteDownload(videoId)
     }
 

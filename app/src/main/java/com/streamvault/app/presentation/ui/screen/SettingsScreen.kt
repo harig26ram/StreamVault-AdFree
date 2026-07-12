@@ -1,8 +1,12 @@
 package com.streamvault.app.presentation.ui.screen
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -10,13 +14,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
+import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.streamvault.app.BuildConfig
 import com.streamvault.app.R
+import com.streamvault.app.presentation.ui.components.MTricolorDivider
 import com.streamvault.app.presentation.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -27,6 +35,16 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    val signInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            viewModel.completeSignIn(task)
+            viewModel.refreshUserProfile()
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -44,6 +62,8 @@ fun SettingsScreen(
             )
         )
 
+        MTricolorDivider()
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -52,12 +72,70 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             SettingsSection(title = "Account") {
-                SettingsItem(
-                    title = "Sign in with Google",
-                    subtitle = "Connect your YouTube account for subscriptions & history",
-                    icon = Icons.Default.AccountCircle,
-                    onClick = { onNavigateToLogin() }
-                )
+                if (uiState.userProfile != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (uiState.userProfile?.photoUrl != null) {
+                            AsyncImage(
+                                model = uiState.userProfile?.photoUrl,
+                                contentDescription = "Profile",
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AccountCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(40.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = uiState.userProfile?.displayName ?: "",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = uiState.userProfile?.email ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    SettingsItem(
+                        title = "Switch account",
+                        subtitle = "Use a different Google account",
+                        icon = Icons.Default.SwitchAccount,
+                        onClick = {
+                            viewModel.prepareAccountSwitch()
+                            signInLauncher.launch(viewModel.getSignInIntent())
+                        }
+                    )
+                    SettingsItem(
+                        title = "Sign out",
+                        subtitle = "Remove this account from FreedomPlay",
+                        icon = Icons.Default.Logout,
+                        onClick = {
+                            viewModel.signOut()
+                            onNavigateToLogin()
+                        }
+                    )
+                } else {
+                    SettingsItem(
+                        title = "Sign in with Google",
+                        subtitle = "Connect your YouTube account for subscriptions & history",
+                        icon = Icons.Default.AccountCircle,
+                        onClick = { onNavigateToLogin() }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -173,6 +251,13 @@ fun SettingsScreen(
                     icon = Icons.Default.Equalizer,
                     onClick = onNavigateToEqualizer
                 )
+                val equalizerPresets = listOf("Flat" to -1, "Bass Boost" to 0, "Vocal" to 1, "Rock" to 2, "Jazz" to 3, "Classical" to 4, "Pop" to 5)
+                SettingsItem(
+                    title = "Equalizer Preset",
+                    subtitle = equalizerPresets.firstOrNull { it.second == uiState.equalizerPreset }?.first ?: "Flat",
+                    icon = Icons.Default.Tune,
+                    onClick = { viewModel.showEqualizerPresetDialog() }
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -214,7 +299,7 @@ fun SettingsScreen(
     }
 
     if (uiState.showQualityDialog) {
-        val qualities = listOf("Auto", "2160p", "1440p", "1080p", "720p", "480p", "360p")
+        val qualities = listOf("Auto", "Highest", "2160p", "1440p", "1080p", "720p", "480p", "360p")
         AlertDialog(
             onDismissRequest = { viewModel.dismissQualityDialog() },
             title = { Text("Video Quality", fontWeight = FontWeight.Bold) },
@@ -285,6 +370,41 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { viewModel.dismissDefaultTabDialog() }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (uiState.showEqualizerPresetDialog) {
+        val equalizerPresets = listOf("Flat" to -1, "Bass Boost" to 0, "Vocal" to 1, "Rock" to 2, "Jazz" to 3, "Classical" to 4, "Pop" to 5)
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissEqualizerPresetDialog() },
+            title = { Text("Equalizer Preset", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    equalizerPresets.forEach { (label, value) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    viewModel.setEqualizerPreset(value)
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            RadioButton(
+                                selected = uiState.equalizerPreset == value,
+                                onClick = { viewModel.setEqualizerPreset(value) }
+                            )
+                            Text(label, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.dismissEqualizerPresetDialog() }) {
                     Text("Cancel")
                 }
             }

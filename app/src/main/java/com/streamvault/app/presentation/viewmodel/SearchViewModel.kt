@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.streamvault.app.data.repository.VisitorDataBootstrapper
 import com.streamvault.app.domain.model.FeedItem
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.usecase.AddToWatchLaterUseCase
@@ -20,20 +19,36 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import javax.inject.Inject
 
+enum class SearchFilter(val label: String, val params: String?) {
+    ALL("All", null),
+    VIDEO("Videos", "EgIQAQ=="),
+    CHANNEL("Channels", "EgIIAQ=="),
+    PLAYLIST("Playlists", "EgIQBA=="),
+    LAST_HOUR("Last hour", "EgIIBA=="),
+    TODAY("Today", "EgIIAw=="),
+    THIS_WEEK("This week", "EgIIAg=="),
+    THIS_MONTH("This month", "EgIIAQ=="),
+    THIS_YEAR("This year", "EgIIBQ=="),
+    SHORT("Under 4 min", "EgIYAw=="),
+    MEDIUM("4-20 min", "EgIYAg=="),
+    LONG("Over 20 min", "EgIYAQ==")
+}
+
 data class SearchUiState(
     val query: String = "",
     val results: List<FeedItem> = emptyList(),
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val error: String? = null,
     val continuationToken: String? = null,
-    val searchHistory: List<String> = emptyList()
+    val searchHistory: List<String> = emptyList(),
+    val selectedFilter: SearchFilter = SearchFilter.ALL
 )
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val searchUseCase: SearchUseCase,
     private val addToWatchLaterUseCase: AddToWatchLaterUseCase,
-    private val visitorDataBootstrapper: VisitorDataBootstrapper,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -81,10 +96,10 @@ class SearchViewModel @Inject constructor(
 
     fun search(query: String = _uiState.value.query) {
         if (query.isBlank()) return
+        val params = _uiState.value.selectedFilter.params
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            visitorDataBootstrapper.ensureVisitorData()
-            searchUseCase(query).fold(
+            searchUseCase(query, params = params).fold(
                 onSuccess = { result ->
                     val newHistory = (_uiState.value.searchHistory + query).distinct().take(20)
                     _uiState.value = _uiState.value.copy(
@@ -107,9 +122,10 @@ class SearchViewModel @Inject constructor(
 
     fun loadMore() {
         val token = _uiState.value.continuationToken ?: return
+        val params = _uiState.value.selectedFilter.params
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
-            searchUseCase(_uiState.value.query, token).fold(
+            searchUseCase(_uiState.value.query, token, params).fold(
                 onSuccess = { result ->
                     _uiState.value = _uiState.value.copy(
                         results = _uiState.value.results + result.items,
@@ -140,6 +156,41 @@ class SearchViewModel @Inject constructor(
         val newHistory = _uiState.value.searchHistory - query
         _uiState.value = _uiState.value.copy(searchHistory = newHistory)
         saveSearchHistory(newHistory)
+    }
+
+    fun refresh() {
+        val query = _uiState.value.query
+        if (query.isBlank()) return
+        val params = _uiState.value.selectedFilter.params
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRefreshing = true, error = null)
+            searchUseCase(query, params = params).fold(
+                onSuccess = { result ->
+                    val newHistory = (_uiState.value.searchHistory + query).distinct().take(20)
+                    _uiState.value = _uiState.value.copy(
+                        results = result.items,
+                        continuationToken = result.continuationToken,
+                        isRefreshing = false,
+                        searchHistory = newHistory
+                    )
+                    saveSearchHistory(newHistory)
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        error = e.message,
+                        isRefreshing = false
+                    )
+                }
+            )
+        }
+    }
+
+    fun onFilterSelected(filter: SearchFilter) {
+        if (_uiState.value.selectedFilter == filter) return
+        _uiState.value = _uiState.value.copy(selectedFilter = filter)
+        if (_uiState.value.query.isNotBlank()) {
+            search()
+        }
     }
 
     fun addToWatchLater(video: Video) {

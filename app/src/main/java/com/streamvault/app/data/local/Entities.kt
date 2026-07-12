@@ -104,6 +104,8 @@ data class DownloadEntity(
     @ColumnInfo(name = "file_size") val fileSize: Long = 0,
     @ColumnInfo(name = "download_status") val downloadStatus: String = DownloadStatus.PENDING.name,
     @ColumnInfo(name = "progress") val progress: Int = 0,
+    @ColumnInfo(name = "downloaded_audio_bytes") val downloadedAudioBytes: Long = 0,
+    @ColumnInfo(name = "downloaded_video_bytes") val downloadedVideoBytes: Long = 0,
     @ColumnInfo(name = "downloaded_at") val downloadedAt: Long = System.currentTimeMillis()
 )
 

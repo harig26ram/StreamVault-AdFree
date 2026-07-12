@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.domain.model.FeedItem
 import com.streamvault.app.domain.model.HomeFeed
-import com.streamvault.app.data.repository.VisitorDataBootstrapper
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.usecase.AddToWatchLaterUseCase
 import com.streamvault.app.domain.usecase.GetHomeFeedUseCase
@@ -27,8 +26,7 @@ data class HomeUiState(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val getHomeFeedUseCase: GetHomeFeedUseCase,
-    private val addToWatchLaterUseCase: AddToWatchLaterUseCase,
-    private val visitorDataBootstrapper: VisitorDataBootstrapper
+    private val addToWatchLaterUseCase: AddToWatchLaterUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -41,8 +39,7 @@ class HomeViewModel @Inject constructor(
     fun loadHomeFeed() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            visitorDataBootstrapper.ensureVisitorData()
-            val result = withTimeoutOrNull(15000L) {
+            val result = withTimeoutOrNull(45000L) {
                 getHomeFeedUseCase()
             }
             if (result != null) {
@@ -61,7 +58,7 @@ class HomeViewModel @Inject constructor(
                         )
                     }
                 )
-            } else {
+} else {
                 _uiState.value = _uiState.value.copy(
                     error = "Loading timed out. Please try again.",
                     isLoading = false
@@ -103,8 +100,7 @@ class HomeViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isRefreshing = true)
-            visitorDataBootstrapper.ensureVisitorData()
+            _uiState.value = _uiState.value.copy(isRefreshing = true, error = null)
             getHomeFeedUseCase().fold(
                 onSuccess = { feed ->
                     _uiState.value = _uiState.value.copy(

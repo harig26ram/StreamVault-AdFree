@@ -1,73 +1,114 @@
-# HANDOFF: FreedomPlay (StreamVault-AdFree) — Full Feature Build
-Generated: 2026-07-09 · Session focus: Complete all waves of features, OAuth fix, download resume, mini player overlay, PiP lifecycle
+# HANDOFF — StreamVault-AdFree / FreedomPlay
 
-## 1. Goal
-Build a fully-featured ad-free YouTube streaming Android app (FreedomPlay) with personalized feed, background playback, PiP, downloads, equalizer, mini player, and Google Sign-In. All features are COMPLETE. Release APK is 4.04MB.
+## Context
+App: **FreedomPlay / StreamVault-AdFree** (package `com.streamvault.app`), Android ad-free YouTube player.
+Kotlin / Jetpack Compose / Material 3 / AMOLED. Version 6.0.0 (versionCode 6).
+Build: `.\gradlew.bat compileDebugKotlin` — BUILD SUCCESSFUL.
 
-## 2. Why This Matters / Background
-Private closed group app, no public release. Success = ad-free YouTube playback with personalized feed, infinite suggestions, works on all Android devices (Moto sideload-restricted + OnePlus 13R OxygenOS 16). User instruction: "only interrupt me for human touch in decisions else execute yourself."
+## What's Done (All 11 Original Issues + 2 New Features)
 
-## 3. Current State
-- **DONE**: All 18 feature waves completed (Auth, Feed, Premium, Personalized Feed, UI Polish, Tests, Downloads, Equalizer, Cast stubs, Notifications, Branding fixes, visitorData fix, Icon, Download playback, Download UI polish, MiniPlayer overlay, PiP lifecycle, Download resume, OAuth fix)
-- **DONE**: Build verified — `assembleDebug` BUILD SUCCESSFUL, 192 unit tests pass (191 consistently, 1 flaky Robolectric)
-- **DONE**: Release APK — 4.04MB signed with streamvault-release.jks
-- **DONE**: OAuth — Android-type client configured, real Client ID in secrets.properties, no client secret needed
-- **NOT STARTED**: Cast (dropped per user request)
-- **NOT STARTED**: Instrumented/android tests (only unit tests exist)
+### #1 Controls auto-hide
+PlayerScreen.kt: controls wrapped in `if (showControls)`, auto-hide via inactivity timeout.
 
-## 4. Key Decisions (and why)
-- **Custom MediaCodec player over ExoPlayer**: Full control over stream formats, skip silence, equalizer. Player modules: core, youtube, ui, sponsorblock
-- **MiniPlayerManager as Hilt Singleton**: PlayerViewModel is per-NavBackStackEntry (hiltViewModel). To show mini player across navigation, singleton holds engine reference + state when mini player active. onCleared() skips engine release if mini player active.
-- **PiP via polling → callback**: Initial 500ms polling was laggy. Replaced with `act.isInPictureInPictureMode` direct read in LaunchedEffect. MainActivity has `pipModeActive` mutableStateOf wired to onPictureInPictureModeChanged callback.
-- **Download resume via DB URLs**: DownloadWorker stores audio_url + video_url in DownloadEntity. On app startup, resumePendingDownloads() re-enqueues WorkManager requests for PENDING/PAUSED entries.
-- **OAuth: Android-type client**: No client secret needed. AuthManager guards updated to only check WEB_CLIENT_ID. Token exchange/refresh conditionally omit client_secret param when empty.
-- **Cast dropped**: User said "drop it" — CastSessionManager/CastPlayer are stubs, button hidden when SDK unavailable.
-- **Feeds use FEwhat_to_watch browse → HTML scrape → search fallback**: First tries authenticated YouTube browse endpoint, falls back to HTML scraping, then search-based feed with watch history topics.
-- **DB version 6 with MIGRATION_5_6**: Added audio_url/video_url columns to downloads table for resume support.
+### #2 Fullscreen button + #8 Top bar video title
+PlayerScreen.kt: fullscreen IconButton (Fullscreen/FullscreenExit icons), `DisposableEffect` for SENSOR_LANDSCAPE + hide system bars. Top bar shows title + channelName Column, both clickable.
 
-## 5. Traps & Dead Ends
-- **PlayerViewModel is per-NavBackStackEntry**: Cannot share mini player state across navigation without a singleton. MiniPlayerManager (@Singleton) solves this.
-- **ComponentActivity.isInPictureInPictureMode clash**: Naming a field `isInPictureInPictureMode` causes JVM signature clash with ComponentActivity's built-in method. Use `pipModeActive` instead.
-- **DownloadWorker loses URLs on pause**: URLs were only in inputData, not persisted to DB. Fixed by adding audio_url/video_url columns to DownloadEntity.
-- **Android OAuth has no client_secret**: Code was sending empty client_secret which Google rejects. Fixed by conditionally omitting the param.
-- **Robolectric flaky on Windows**: Temp directory lock contention causes 1 random test failure per run. Not a code issue — different test fails each run.
-- **Release build R8 takes >2 min**: First attempt timed out at 5 min. Use 10 min timeout for `assembleRelease`.
-- **secrets.properties + local.properties are gitignored**: Never committed. Contains real OAuth Client ID and signing passwords.
+### #3 YouTube parity — likeCount + Open in YouTube
+- `likeCount: String` field on `Video` data class (MediaModels.kt).
+- `VideoDetails.likeCount` DTO field (YouTubeApiService.kt:202).
+- `detailsToVideo()` formats likeCount to K/M (VideoRepositoryImpl.kt:2377).
+- PlayerScreen Like button shows `"Like ${video.likeCount}"` (PlayerScreen.kt:867).
+- Open in YouTube: PlayerScreen (OpenInNew icon, try `com.google.android.youtube` package, fallback browser) + VideoCard dropdown.
+- Dislike button (stub toast). Save/Watch Later works.
 
-## 6. Relevant Files & Pointers
-- `AGENTS.md` — Full project documentation, all features, architecture, test commands
-- `HANDOFF.md` — This file (new session starting point)
-- `secrets.properties` — WEB_CLIENT_ID (real), WEB_CLIENT_SECRET (empty). Gitignored.
-- `local.properties` — Signing config (streamvault-release.jks passwords). Gitignored.
-- `app/src/main/java/com/streamvault/app/auth/AuthManager.kt` — Google Sign-In, token exchange/refresh, silent sign-in, session persistence
-- `app/src/main/java/com/streamvault/app/di/NetworkModule.kt` — 401 interceptor with auto token refresh
-- `app/src/main/java/com/streamvault/app/data/repository/VideoRepositoryImpl.kt` — Feed fallback chain: FEwhat_to_watch → HTML → search
-- `app/src/main/java/com/streamvault/app/data/repository/VisitorDataBootstrapper.kt` — Visitor data bootstrap (one-shot guard removed for retries)
-- `app/src/main/java/com/streamvault/app/presentation/viewmodel/PlayerViewModel.kt` — Core player logic: background service, PiP, mini player, saved position, queue, equalizer, downloads
-- `app/src/main/java/com/streamvault/app/presentation/ui/screen/PlayerScreen.kt` — Player UI: PiP callback, mini player, queue sheet, controls
-- `app/src/main/java/com/streamvault/app/presentation/ui/components/MiniPlayerManager.kt` — Singleton holding engine + state for cross-navigation mini player
-- `app/src/main/java/com/streamvault/app/presentation/navigation/NavGraph.kt` — MiniPlayer overlay on non-player screens
-- `app/src/main/java/com/streamvault/app/data/download/DownloadManager.kt` — WorkManager orchestration, resumePendingDownloads()
-- `app/src/main/java/com/streamvault/app/data/download/DownloadWorker.kt` — Download + mux with MediaMuxer, stores URLs in DB
-- `app/src/main/java/com/streamvault/app/data/local/Entities.kt` — DownloadEntity with audio_url/video_url, DB version 6
-- `app/src/main/java/com/streamvault/app/di/DatabaseModule.kt` — MIGRATION_5_6
-- `app/src/main/java/com/streamvault/app/service/PlaybackService.kt` — Background playback with audio focus
-- `player/core/src/main/java/com/streamvault/player/core/PlayerEngine.kt` — Custom MediaCodec engine, skip silence, equalizer
-- `app/src/main/java/com/streamvault/app/presentation/MainActivity.kt` — pipModeActive state, PiP callback, notification permission
-- `app/src/main/java/com/streamvault/app/StreamVaultApplication.kt` — NotificationHelper + DownloadManager resume on startup
-- `app/src/test/` — 102 app module tests (TimeUtils, UrlUtils, HomeViewModel, SearchViewModel)
-- `player/*/src/test/` — 90 player module tests
+### #4 Logout / switch account
+SettingsScreen: signOut() + onNavigateToLogin(). AuthManager.revokeAccess() + signOut().
 
-## 7. Open Work (status, with dependencies)
-- **Release APK ready**: 4.04MB at `app/build/outputs/apk/release/app-release.apk`, signed with streamvault-release.jks
-- **Cast**: Dropped per user request. Stubs exist but hidden.
-- **Instrumented tests**: No androidTest/ directory exists. Would need Espresso/Compose test rules.
-- **Flaky Robolectric test**: 1 test fails per run due to Windows temp dir lock contention. Not code-related.
-- **OAuth on device**: Needs Google Play Services. Test on real device or emulator with Play Services.
+### #5 Highest quality default
+SettingsScreen qualities list expanded. `loadBestStream()` reads `settingsManager.videoQuality`, resolves targetHeight.
 
----
-## Prompt for the Fresh Agent
+### #6 Pull-to-refresh — 7 screens
+Home, Trending, Subscriptions, Search, Channel, Playlist, Library — all wrapped in `PullToRefreshBox`. Each screen's ViewModel has `isRefreshing` + `refresh()`.
 
-FreedomPlay (package: `com.streamvault.app`) is a complete ad-free YouTube streaming Android app. All 18 feature waves are done. Build: `./gradlew.bat assembleDebug` (BUILD SUCCESSFUL, 192 tests pass). Release APK: 4.04MB signed. Key architecture: Kotlin + Jetpack Compose + Material 3 + Hilt + Room + Retrofit + custom MediaCodec player. PlayerViewModel is per-NavBackStackEntry (hiltViewModel), MiniPlayerManager is @Singleton for cross-navigation mini player. PiP uses callback-based detection. Downloads support resume via DB-stored stream URLs. OAuth is Android-type (no client secret). Database is version 6 with MIGRATION_5_6.
+### #7 Related videos loading
+`getRelatedVideos()` uses `webContext()` + visitorData. `parseLockupViewModel()` fixed channelName assignment.
 
-Before responding, read every file listed under "Relevant Files & Pointers" above. Do not summarize, paraphrase, or claim you already have context — actually read each file. Treat every claim in this handoff as context to verify against the code, not facts to trust blindly. Then wait for my instructions before taking any action.
+### #9 Download fixes (4 bugs)
+1. **Resume resets progress** — `startDownload()` checks for existing PAUSED/FAILED entity, updates URLs + resets to PENDING (was inserting fresh 0-byte entity).
+2. **deleteDownload missing temp cleanup** — Now deletes `.mp4`, `_audio.tmp`, `_video.tmp` from `downloads/` dir.
+3. **Notification not auto-cancelled** — `nm.cancel(NOTIFICATION_ID)` after completion/failure.
+4. **Added `updateDownloadUrls()`** DAO query (VideoDao.kt).
+
+### #10 Autoplay setting honored
+`playNextVideo()` returns early if `!settingsManager.autoplay` (after RepeatMode.ONE check).
+
+### #11 reanime.to green theme
+- **Theme.kt**: Blue (#008AC9) + purple (#2B115A) → VIVID GREEN (#22C55E) primary. Dark green containers (#0A2E14), near-invisible outlines (#1A201A), warm orange tertiary (#E8813B), muted error (#DC2626). Pure black AMOLED preserved.
+- **VideoCard.kt**: Glassmorphism Surface (surfaceVariant @ 40% alpha, rounded 14dp). No heavy shadow.
+- **MTricolorDivider.kt**: Blue/purple/red → green (#22C55E) / dark green (#0A2E14) / orange (#E8813B).
+
+### Search Filters (new feature)
+- **SearchViewModel.kt**: `SearchFilter` enum with InnerTube `sp` base64-encoded protobuf params (ALL, VIDEO, CHANNEL, PLAYLIST, LAST_HOUR, TODAY, THIS_WEEK, THIS_MONTH, THIS_YEAR, SHORT, MEDIUM, LONG).
+- **SearchScreen.kt**: `LazyRow` of `FilterChip` composables between MTricolorDivider and content.
+- **SearchUseCase.kt** + **VideoRepository.kt** + **VideoRepositoryImpl.kt**: `params: String?` plumbing to `SearchRequest`.
+- Only visible when query is non-blank.
+
+### Video Chapters (new feature)
+- **MediaModels.kt:74-85**: `Chapter` data class (`title`, `startTimeMs`, computed `formattedTime` H:MM:SS / M:SS).
+- **PlayerViewModel.kt**: `chapters: List<Chapter>` in `PlayerUiState`. `parseChaptersFromDescription()` in companion object using regex `^(\d{1,2}):(\d{2})(?::(\d{2}))?\s+(.+)$` with `RegexOption.MULTILINE`. Parsed when video info arrives.
+- **PlayerScreen.kt:969-1008**: LazyColumn item between description and related videos. Only shown when `chapters.size >= 2`. Each row: timestamp (52dp) + title, highlighted in primary when current. Tapping seeks to chapter time.
+
+## Already-Existing Features (found during audit)
+- **Comments**: Full backend (Comment model, CommentData DTO, getComments() in VideoRepositoryImpl, GetCommentsUseCase) + UI (PlayerScreen.kt:992-1063).
+- **Captions**: CaptionTrack, CaptionSelectorSheet (PlayerScreen.kt:1106-1146), VTT parsing.
+- **Description expand/collapse**: PlayerScreen.kt:938-963.
+- **Repeat modes**: OFF/ONE/ALL in transport controls.
+- **Subscribe button**: Channel subscribe toggle (PlayerScreen.kt:846-860).
+- **Queue management**: Add/remove/reorder/shuffle, repeat modes, drag-reorder UI.
+- **Equalizer**: EqualizerManager, persistent settings, EqualizerScreen.
+- **Mini player**: Floating overlay with thumbnail, progress bar, queue button.
+- **Background playback**: PlaybackService with audio focus, foreground notification.
+- **PiP mode**: Enter/exit PiP, lifecycle polling, resume dialog.
+- **Download manager**: WorkManager orchestration, progress notifications.
+
+## Status Table
+| # | Feature | Status |
+|---|---------|--------|
+| 1 | Controls auto-hide | DONE |
+| 2 | Fullscreen button | DONE |
+| 3 | YouTube parity (likeCount, Open in YouTube) | DONE |
+| 4 | Logout sign out | DONE |
+| 5 | Highest quality default | DONE |
+| 6 | Pull-to-refresh (7 screens) | DONE |
+| 7 | Related videos loading | DONE |
+| 8 | Top bar video name | DONE |
+| 9 | Download fixes (resume/cleanup/notification) | DONE |
+| 10 | Autoplay mechanism | DONE |
+| 11 | reanime.to green theme | DONE |
+| -- | Search Filters | DONE |
+| -- | Video Chapters | DONE |
+
+## Potential Next Features
+1. **Channel tabs** — Videos, Playlists, About tabs on ChannelScreen
+2. **Search history management** — Clear all, edit individual entries
+3. **Better error states** — For comments/captions loading failures
+4. **Description URL parsing** — Make links clickable in video description
+
+## Key Files (absolute paths)
+- PlayerScreen.kt: `app\src\main\java\com\streamvault\app\presentation\ui\screen\PlayerScreen.kt` (~1494 lines)
+- PlayerViewModel.kt: `app\src\main\java\com\streamvault\app\presentation\viewmodel\PlayerViewModel.kt`
+- MediaModels.kt: `app\src\main\java\com\streamvault\app\domain\model\MediaModels.kt`
+- SearchViewModel.kt: `app\src\main\java\com\streamvault\app\presentation\viewmodel\SearchViewModel.kt`
+- VideoRepositoryImpl.kt: `app\src\main\java\com\streamvault\app\data\repository\VideoRepositoryImpl.kt` (~2385 lines)
+- DownloadManager.kt: `app\src\main\java\com\streamvault\app\data\download\DownloadManager.kt`
+- DownloadWorker.kt: `app\src\main\java\com\streamvault\app\data\download\DownloadWorker.kt`
+- Entities.kt: `app\src\main\java\com\streamvault\app\data\local\Entities.kt`
+- Theme.kt: `app\src\main\java\com\streamvault\app\presentation\ui\theme\Theme.kt`
+- VideoCard.kt: `app\src\main\java\com\streamvault\app\presentation\ui\components\VideoCard.kt`
+
+## Build/Verify Loop
+```
+.\gradlew.bat compileDebugKotlin
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+adb shell am start -n com.streamvault.app/.presentation.MainActivity
+```

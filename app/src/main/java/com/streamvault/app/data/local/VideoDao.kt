@@ -59,6 +59,12 @@ interface VideoDao {
     @Query("UPDATE downloads SET download_status = :status, progress = :progress WHERE video_id = :videoId")
     suspend fun updateDownloadStatus(videoId: String, status: String, progress: Int)
 
+    @Query("UPDATE downloads SET downloaded_audio_bytes = :audioBytes, downloaded_video_bytes = :videoBytes WHERE video_id = :videoId")
+    suspend fun updateDownloadedBytes(videoId: String, audioBytes: Long, videoBytes: Long)
+
+    @Query("UPDATE downloads SET audio_url = :audioUrl, video_url = :videoUrl WHERE video_id = :videoId")
+    suspend fun updateDownloadUrls(videoId: String, audioUrl: String, videoUrl: String)
+
     @Query("UPDATE downloads SET file_path = :filePath, file_size = :fileSize, download_status = :status, progress = 100 WHERE video_id = :videoId")
     suspend fun updateDownloadComplete(videoId: String, filePath: String, fileSize: Long, status: String)
 

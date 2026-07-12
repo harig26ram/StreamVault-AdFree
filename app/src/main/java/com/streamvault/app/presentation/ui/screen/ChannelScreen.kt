@@ -3,12 +3,13 @@ package com.streamvault.app.presentation.ui.screen
 import android.content.Intent
 import android.widget.Toast
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.streamvault.app.domain.model.FeedItem
+import com.streamvault.app.presentation.ui.components.MTricolorDivider
 import com.streamvault.app.presentation.viewmodel.ChannelViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,9 +35,14 @@ fun ChannelScreen(
     val tabs = listOf("Videos", "Shorts", "Live", "Playlists")
     val context = LocalContext.current
 
-    Column(
-        modifier = Modifier.fillMaxSize()
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = { viewModel.refresh() },
+        state = rememberPullToRefreshState()
     ) {
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
         TopAppBar(
             title = { Text(uiState.channel?.name ?: "Channel") },
             navigationIcon = {
@@ -57,6 +64,8 @@ fun ChannelScreen(
                 }
             }
         )
+
+        MTricolorDivider()
 
         uiState.channel?.let { channel ->
             Column(
@@ -187,8 +196,9 @@ fun ChannelScreen(
                                     "No ${tabs[selectedTab].lowercase()} found",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
-                        }
+    }
+    }
+}
                     }
                 }
             }

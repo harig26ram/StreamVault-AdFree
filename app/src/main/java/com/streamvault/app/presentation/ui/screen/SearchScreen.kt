@@ -3,9 +3,7 @@ package com.streamvault.app.presentation.ui.screen
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -13,6 +11,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,8 +26,10 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.streamvault.app.presentation.ui.components.LoadingIndicator
+import com.streamvault.app.presentation.ui.components.MTricolorDivider
 import com.streamvault.app.presentation.ui.components.SearchBar
 import com.streamvault.app.presentation.ui.components.VideoCard
+import com.streamvault.app.presentation.viewmodel.SearchFilter
 import com.streamvault.app.presentation.viewmodel.SearchViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,9 +58,14 @@ fun SearchScreen(
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize()
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = { viewModel.refresh() },
+        state = rememberPullToRefreshState()
     ) {
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
         // Search bar
         SearchBar(
             query = uiState.query,
@@ -67,6 +74,34 @@ fun SearchScreen(
             onClear = { viewModel.clearSearch() },
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
         )
+
+        MTricolorDivider()
+
+        // Filter chips (only when searching)
+        if (uiState.query.isNotBlank()) {
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(SearchFilter.entries) { filter ->
+                    FilterChip(
+                        selected = uiState.selectedFilter == filter,
+                        onClick = { viewModel.onFilterSelected(filter) },
+                        label = {
+                            Text(
+                                text = filter.label,
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                }
+            }
+        }
 
         // Content
         when {
@@ -285,5 +320,6 @@ fun SearchScreen(
                 }
             }
         }
+    }
     }
 }

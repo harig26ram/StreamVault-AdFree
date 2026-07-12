@@ -12,6 +12,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,6 +30,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.streamvault.app.R
 import com.streamvault.app.domain.model.FeedItem
+import com.streamvault.app.presentation.ui.components.MTricolorDivider
+import com.streamvault.app.presentation.ui.components.TopBarGradientOverlay
 import com.streamvault.app.presentation.ui.components.VideoCard
 import com.streamvault.app.presentation.viewmodel.TrendingViewModel
 
@@ -53,20 +58,20 @@ private fun ShimmerItem(modifier: Modifier = Modifier) {
         end = Offset(translateAnim, translateAnim)
     )
 
-    Column(modifier = modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+    Column(modifier = modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(14.dp))
                 .background(brush)
         )
         Spacer(modifier = Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
                 modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(17.dp))
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(19.dp))
                     .background(brush)
             )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -105,23 +110,16 @@ fun TrendingScreen(
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = uiState.isRefreshing,
+            onRefresh = { viewModel.refresh() },
+            state = rememberPullToRefreshState()
+        ) {
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
             Box {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp)
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                )
+                TopBarGradientOverlay(height = 130.dp)
                 TopAppBar(
                     title = {
                         Text(
@@ -138,6 +136,8 @@ fun TrendingScreen(
                     windowInsets = WindowInsets(0, 0, 0, 0)
                 )
             }
+
+            MTricolorDivider()
 
             ScrollableTabRow(
                 selectedTabIndex = categories.indexOf(uiState.selectedCategory).coerceAtLeast(0),
@@ -272,6 +272,7 @@ fun TrendingScreen(
                     }
                 }
             }
+        }
         }
     }
 }

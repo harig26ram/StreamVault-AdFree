@@ -7,7 +7,7 @@ import javax.inject.Inject
 open class SearchUseCase @Inject constructor(
     private val repository: VideoRepository
 ) {
-    open suspend operator fun invoke(query: String, continuationToken: String? = null): Result<SearchResult> {
-        return repository.search(query, continuationToken)
+    open suspend operator fun invoke(query: String, continuationToken: String? = null, params: String? = null): Result<SearchResult> {
+        return repository.search(query, continuationToken, params)
     }
 }

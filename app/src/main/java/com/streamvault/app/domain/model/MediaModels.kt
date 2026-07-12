@@ -13,7 +13,8 @@ data class Video(
     val isLive: Boolean = false,
     val isShort: Boolean = false,
     val videoUrl: String? = null,
-    val description: String = ""
+    val description: String = "",
+    val likeCount: String = ""
 ) {
     val watchUrl = "https://www.youtube.com/watch?v=$id"
 }
@@ -69,6 +70,19 @@ data class Comment(
     val voteCount: String,
     val publishedTime: String
 )
+
+data class Chapter(
+    val title: String,
+    val startTimeMs: Long
+) {
+    val formattedTime: String get() {
+        val totalSec = startTimeMs / 1000
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        val s = totalSec % 60
+        return if (h > 0) String.format("%d:%02d:%02d", h, m, s) else String.format("%d:%02d", m, s)
+    }
+}
 
 data class SearchResult(
     val items: List<FeedItem>,

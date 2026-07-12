@@ -20,6 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.streamvault.app.presentation.ui.components.MTricolorDivider
 import com.streamvault.app.presentation.viewmodel.EqualizerViewModel
 
 private val AmoledBlack = Color(0xFF000000)
@@ -83,6 +84,8 @@ fun EqualizerScreen(
                 containerColor = AmoledBlack
             )
         )
+
+        MTricolorDivider()
 
         Column(
             modifier = Modifier

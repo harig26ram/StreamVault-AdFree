@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
@@ -45,6 +46,7 @@ class DownloadWorker @AssistedInject constructor(
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "download_channel"
         private const val TAG = "DownloadWorker"
+        private const val BUFFER_SIZE = 8192
     }
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
@@ -62,58 +64,46 @@ class DownloadWorker @AssistedInject constructor(
             return@withContext Result.success()
         }
 
-        videoDao.insertDownload(
-            DownloadEntity(
-                videoId = videoId,
-                title = title,
-                channelName = channelName,
-                thumbnailUrl = thumbnailUrl,
-                audioUrl = audioUrl,
-                videoUrl = videoUrl,
-                downloadStatus = DownloadStatus.PENDING.name,
-                progress = 0,
-                downloadedAt = System.currentTimeMillis()
-            )
-        )
+        val existingAudioBytes = existingDownload?.downloadedAudioBytes ?: 0L
+        val existingVideoBytes = existingDownload?.downloadedVideoBytes ?: 0L
+
+        val downloadsDir = File(applicationContext.filesDir, "downloads")
+        downloadsDir.mkdirs()
+
+        val audioTempFile = File(downloadsDir, "${videoId}_audio.tmp")
+        val videoTempFile = File(downloadsDir, "${videoId}_video.tmp")
+        val outputFile = File(downloadsDir, "${videoId}.mp4")
+
+        videoDao.updateDownloadStatus(videoId, DownloadStatus.DOWNLOADING.name, 0)
 
         try {
             updateNotification(title, 0, "Preparing download...")
 
-            val downloadsDir = File(applicationContext.filesDir, "downloads")
-            downloadsDir.mkdirs()
-
-            val audioTempFile = File(downloadsDir, "${videoId}_audio.tmp")
-            val videoTempFile = File(downloadsDir, "${videoId}_video.tmp")
-            val outputFile = File(downloadsDir, "${videoId}.mp4")
-
-            videoDao.updateDownloadStatus(videoId, DownloadStatus.DOWNLOADING.name, 0)
-
-            // Download audio stream
+            // Download audio stream with resume support
             updateNotification(title, 0, "Downloading audio...")
-            downloadStream(audioUrl, audioTempFile) { progress ->
+            var audioBytes = existingAudioBytes
+            downloadStreamWithResume(audioUrl, audioTempFile, existingAudioBytes) { progress, downloadedBytes ->
+                audioBytes = downloadedBytes
                 setProgressAsync(workDataOf("progress" to progress / 2))
                 updateNotification(title, progress / 2, "Downloading audio...")
             }
+            videoDao.updateDownloadedBytes(videoId, audioBytes, existingVideoBytes)
 
             if (isStopped) {
-                cleanupTempFiles(audioTempFile, videoTempFile)
                 videoDao.updateDownloadStatus(videoId, DownloadStatus.PAUSED.name, 0)
                 return@withContext Result.success()
             }
 
-            // Download video stream
+            // Download video stream with resume support
             updateNotification(title, 50, "Downloading video...")
-            downloadStream(videoUrl, videoTempFile) { progress ->
+            var videoBytes = existingVideoBytes
+            downloadStreamWithResume(videoUrl, videoTempFile, existingVideoBytes) { progress, downloadedBytes ->
+                videoBytes = downloadedBytes
                 val totalProgress = 50 + (progress / 2)
                 setProgressAsync(workDataOf("progress" to totalProgress))
                 updateNotification(title, totalProgress, "Downloading video...")
             }
-
-            if (isStopped) {
-                cleanupTempFiles(audioTempFile, videoTempFile)
-                videoDao.updateDownloadStatus(videoId, DownloadStatus.PAUSED.name, 50)
-                return@withContext Result.success()
-            }
+            videoDao.updateDownloadedBytes(videoId, audioBytes, videoBytes)
 
             // Mux audio + video
             updateNotification(title, 90, "Processing...")
@@ -122,7 +112,8 @@ class DownloadWorker @AssistedInject constructor(
             val fileSize = outputFile.length()
             videoDao.updateDownloadComplete(videoId, "downloads/${videoId}.mp4", fileSize, DownloadStatus.COMPLETED.name)
 
-            updateNotification(title, 100, "Download complete")
+            val notificationManager = applicationContext.getSystemService(NotificationManager::class.java)
+            notificationManager.cancel(NOTIFICATION_ID)
 
             cleanupTempFiles(audioTempFile, videoTempFile)
 
@@ -131,36 +122,65 @@ class DownloadWorker @AssistedInject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Download failed: $videoId", e)
             videoDao.updateDownloadStatus(videoId, DownloadStatus.FAILED.name, 0)
-            updateNotification(title, 0, "Download failed")
+            val nm = applicationContext.getSystemService(NotificationManager::class.java)
+            nm.cancel(NOTIFICATION_ID)
             Result.retry()
         }
     }
 
-    private suspend fun downloadStream(url: String, outputFile: File, onProgress: (Int) -> Unit) {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.connectTimeout = 30_000
-        connection.readTimeout = 30_000
-        connection.connect()
+    private suspend fun downloadStreamWithResume(
+        url: String,
+        outputFile: File,
+        existingBytes: Long,
+        onProgress: (Int, Long) -> Unit
+    ) {
+        var connection: HttpURLConnection? = null
+        try {
+            connection = URL(url).openConnection() as HttpURLConnection
+            connection.connectTimeout = 30_000
+            connection.readTimeout = 30_000
+            connection.instanceFollowRedirects = true
 
-        val totalBytes = connection.contentLength.toLong()
-        var downloadedBytes = 0L
+            if (existingBytes > 0 && outputFile.exists()) {
+                connection.setRequestProperty("Range", "bytes=$existingBytes-")
+            }
 
-        connection.inputStream.use { input ->
-            FileOutputStream(outputFile).use { output ->
-                val buffer = ByteArray(8192)
+            connection.connect()
+
+            val responseCode = connection.responseCode
+            var startBytes = existingBytes
+            val totalBytes = if (responseCode == HttpURLConnection.HTTP_PARTIAL) {
+                connection.getHeaderField("Content-Range")?.split("/")?.last()?.toLong() ?: connection.contentLength.toLong()
+            } else {
+                if (existingBytes > 0 && responseCode != HttpURLConnection.HTTP_PARTIAL) {
+                    // Server doesn't support range, restart from beginning
+                    startBytes = 0
+                }
+                connection.contentLength.toLong()
+            }
+
+            val inputStream = connection.inputStream
+            val mode = if (startBytes > 0 && outputFile.exists()) "rw" else "rwd"
+            RandomAccessFile(outputFile, mode).use { raf ->
+                if (startBytes > 0) {
+                    raf.seek(startBytes)
+                }
+                val buffer = ByteArray(BUFFER_SIZE)
+                var downloadedBytes = startBytes
                 var bytesRead: Int
-                while (input.read(buffer).also { bytesRead = it } != -1) {
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                     if (isStopped) break
-                    output.write(buffer, 0, bytesRead)
+                    raf.write(buffer, 0, bytesRead)
                     downloadedBytes += bytesRead
                     if (totalBytes > 0) {
                         val progress = ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100)
-                        onProgress(progress)
+                        onProgress(progress, downloadedBytes)
                     }
                 }
             }
+        } finally {
+            connection?.disconnect()
         }
-        connection.disconnect()
     }
 
     private fun muxStreams(audioFile: File, videoFile: File, outputFile: File) {
@@ -202,7 +222,6 @@ class DownloadWorker @AssistedInject constructor(
         val bufferInfo = MediaCodec.BufferInfo()
 
         while (true) {
-            bufferInfo.offset = 0
             bufferInfo.size = extractor.readSampleData(buffer, 0)
             if (bufferInfo.size < 0) break
 

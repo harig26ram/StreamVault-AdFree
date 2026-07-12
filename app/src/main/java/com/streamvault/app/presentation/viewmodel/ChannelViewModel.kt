@@ -20,6 +20,7 @@ data class ChannelUiState(
     val channel: com.streamvault.app.domain.model.Channel? = null,
     val videos: List<FeedItem> = emptyList(),
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val error: String? = null,
     val isSubscribed: Boolean = false
 )
@@ -44,7 +45,7 @@ class ChannelViewModel @Inject constructor(
         }
     }
 
-    private fun loadChannel() {
+    fun loadChannel() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
             val result = getChannelInfoUseCase(channelId)
@@ -83,6 +84,27 @@ class ChannelViewModel @Inject constructor(
     fun addToWatchLater(video: Video) {
         viewModelScope.launch {
             addToWatchLaterUseCase(video)
+        }
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRefreshing = true, error = null)
+            getChannelInfoUseCase(channelId).fold(
+                onSuccess = { channel ->
+                    _uiState.value = _uiState.value.copy(
+                        channel = channel,
+                        videos = channel.videos.map { FeedItem.Video(it) },
+                        isRefreshing = false
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        error = e.message,
+                        isRefreshing = false
+                    )
+                }
+            )
         }
     }
 }

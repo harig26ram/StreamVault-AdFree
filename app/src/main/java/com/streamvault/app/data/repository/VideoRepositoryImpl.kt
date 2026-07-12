@@ -2,6 +2,7 @@ package com.streamvault.app.data.repository
 
 import android.util.Log
 import com.google.gson.Gson
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -13,6 +14,7 @@ import com.streamvault.app.data.api.PlayerRequest
 import com.streamvault.app.data.api.SearchRequest
 import com.streamvault.app.data.api.YouTubeApiService
 import com.streamvault.app.data.api.VideoDetails
+import com.streamvault.app.data.bootstrap.VisitorDataBootstrapper
 import com.streamvault.app.data.local.VideoDao
 import com.streamvault.player.youtube.CipherDecryptor
 import com.streamvault.player.youtube.NParamDecryptor
@@ -49,7 +51,8 @@ class VideoRepositoryImpl @Inject constructor(
     private val apiService: YouTubeApiService,
     private val videoDao: VideoDao,
     @javax.inject.Named("general") private val httpClient: okhttp3.OkHttpClient,
-    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
+    private val visitorDataBootstrapper: VisitorDataBootstrapper
 ) : VideoRepository {
 
     private val streamUrlExtractor = StreamUrlExtractor(
@@ -66,9 +69,6 @@ class VideoRepositoryImpl @Inject constructor(
     companion object {
         private const val TAG = "VideoRepository"
     }
-
-    @Volatile
-    private var cachedVisitorData: String? = null
 
     override suspend fun getHomeFeed(continuationToken: String?): Result<HomeFeed> {
         if (continuationToken != null) {
@@ -92,17 +92,22 @@ class VideoRepositoryImpl @Inject constructor(
 
             Log.d(TAG, "HTML scrape empty, using search API as home feed source with watch history")
             val (searchItems, searchContinuation) = fetchSearchBasedHomeFeed()
-            Result.success(HomeFeed(items = searchItems, continuationToken = searchContinuation))
+            if (searchItems.isEmpty()) {
+                Result.failure(Exception("No content available. Please check your connection and try again."))
+            } else {
+                Result.success(HomeFeed(items = searchItems, continuationToken = searchContinuation))
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Home feed exception: ${e.message}")
             Result.failure(e)
         }
     }
 
-    private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<HomeFeed> {
+private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<HomeFeed> {
         return try {
             var ctx = webContext()
-            val vd = cachedVisitorData ?: com.streamvault.app.di.NetworkModule.visitorData
+            // Get visitorData from bootstrapper (cached or fresh)
+            val vd = visitorDataBootstrapper.getCachedVisitorData()
             vd?.let { ctx = ctx.copy(client = ctx.client.copy(visitorData = it)) }
             val request = BrowseRequest(context = ctx, browseId = "FEwhat_to_watch", params = continuationToken)
             val rawResponse = apiService.browseRaw(request)
@@ -113,12 +118,15 @@ class VideoRepositoryImpl @Inject constructor(
             } else {
                 Result.failure(Exception("Continuation error: ${rawResponse.code()}"))
             }
-        } catch (e: Exception) {
+} catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     private suspend fun fetchHomePageFeed(): List<FeedItem> = withContext(Dispatchers.IO) {
+        // Ensure bootstrapper has fresh data
+        visitorDataBootstrapper.ensureBootstrapped()
+        
         val chromeUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
         try {
             Log.d(TAG, "Fetching YouTube homepage for initial data...")
@@ -133,8 +141,8 @@ class VideoRepositoryImpl @Inject constructor(
             Log.d(TAG, "Homepage HTML length: ${homepageHtml.length}")
 
             if (homepageHtml.isNotEmpty()) {
-                extractVisitorDataFromHtml(homepageHtml)
-                extractApiKeyFromHtml(homepageHtml)
+                // Extraction now done by bootstrapper
+                visitorDataBootstrapper.ensureBootstrapped()
             }
 
             var items = extractVideosFromHomepageHtml(homepageHtml)
@@ -239,7 +247,7 @@ class VideoRepositoryImpl @Inject constructor(
         try {
             for (topic in topics) {
                 var ctx = webContext()
-                val vd = cachedVisitorData ?: com.streamvault.app.di.NetworkModule.visitorData
+                val vd = visitorDataBootstrapper.getCachedVisitorData()
                 vd?.let { ctx = ctx.copy(client = ctx.client.copy(visitorData = it)) }
 
                 val request = if (topic.startsWith("channel:")) {
@@ -299,8 +307,6 @@ class VideoRepositoryImpl @Inject constructor(
             val match = pattern.find(html)
             if (match != null) {
                 val vd = match.groupValues[1]
-                cachedVisitorData = vd
-                com.streamvault.app.di.NetworkModule.visitorData = vd
                 Log.d(TAG, "Extracted visitorData from HTML: ${vd.take(50)}...")
             }
         } catch (_: Exception) {}
@@ -312,7 +318,6 @@ class VideoRepositoryImpl @Inject constructor(
             val match = pattern.find(html)
             if (match != null) {
                 val key = match.groupValues[1]
-                com.streamvault.app.di.NetworkModule.innerTubeApiKey = key
                 Log.d(TAG, "Extracted API key from HTML: $key")
             }
         } catch (_: Exception) {}
@@ -320,45 +325,55 @@ class VideoRepositoryImpl @Inject constructor(
 
     private fun extractVideosFromHomepageHtml(html: String): List<FeedItem> {
         val items = mutableListOf<FeedItem>()
-        try {
-            val pattern = Regex("(?s)var ytInitialData = (\\{.*?\\});</script>")
+        
+        // Try multiple regex patterns for ytInitialData (YouTube sometimes has multiple)
+        val ytInitialDataPatterns = listOf(
+            Regex("(?s)var ytInitialData = (\\{.*?\\});</script>"),
+            Regex("(?s)window\\[\"ytInitialData\"\\] = (\\{.*?\\});"),
+            Regex("(?s)ytInitialData\\s*=\\s*(\\{.*?\\});"),
+        )
+        
+        var root: JsonObject? = null
+        var matchedPattern = -1
+        
+        for ((index, pattern) in ytInitialDataPatterns.withIndex()) {
             val match = pattern.find(html)
-            if (match == null) {
-                Log.d(TAG, "No ytInitialData found in HTML")
-                return items
-            }
-            val jsonStr = match.groupValues[1]
-            Log.d(TAG, "ytInitialData length: ${jsonStr.length}")
-
-            val root = com.google.gson.JsonParser.parseString(jsonStr).asJsonObject
-
-            val contents = root
-                ?.getAsJsonObject("contents")
-                ?.getAsJsonObject("twoColumnBrowseResultsRenderer")
-                ?.getAsJsonArray("tabs")
-                ?.firstOrNull()?.asJsonObject
-                ?.getAsJsonObject("tabRenderer")
-                ?.getAsJsonObject("content")
-                ?.getAsJsonObject("richGridRenderer")
-                ?.getAsJsonArray("contents")
-            if (contents != null) {
-                Log.d(TAG, "Found richGridRenderer with ${contents.size()} items")
-                contents.forEach { item ->
-                    val itemObj = item.asJsonObject
-                    if (itemObj.has("richSectionRenderer")) {
-                        val rsContent = itemObj.getAsJsonObject("richSectionRenderer")
-                            ?.getAsJsonObject("content")
-                        rsContent?.let { extractVideosFromJson(it, items) }
-                    } else {
-                        extractVideosFromJson(itemObj, items)
-                    }
+            if (match != null) {
+                val jsonStr = match.groupValues[1]
+                Log.d(TAG, "ytInitialData found via pattern $index, length: ${jsonStr.length}")
+                try {
+                    root = com.google.gson.JsonParser.parseString(jsonStr).asJsonObject
+                    matchedPattern = index
+                    break
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to parse ytInitialData from pattern $index: ${e.message}")
                 }
             }
-
-            if (items.isEmpty()) {
-                Log.d(TAG, "Trying shelfRenderer fallback on homepage")
-                val shelfItems = root
-                    ?.getAsJsonObject("contents")
+        }
+        
+        if (root == null) {
+            Log.d(TAG, "No ytInitialData found in HTML with any pattern")
+            return items
+        }
+        
+        Log.d(TAG, "Parsed ytInitialData root with pattern $matchedPattern")
+        
+        // Try multiple extraction paths in order of likelihood
+        val extractionPaths = listOf(
+            // Path 1: Homepage richGridRenderer (primary)
+            { root: JsonObject? ->
+                root?.getAsJsonObject("contents")
+                    ?.getAsJsonObject("twoColumnBrowseResultsRenderer")
+                    ?.getAsJsonArray("tabs")
+                    ?.firstOrNull()?.asJsonObject
+                    ?.getAsJsonObject("tabRenderer")
+                    ?.getAsJsonObject("content")
+                    ?.getAsJsonObject("richGridRenderer")
+                    ?.getAsJsonArray("contents")
+            },
+            // Path 2: Trending page sectionListRenderer
+            { root: JsonObject? ->
+                root?.getAsJsonObject("contents")
                     ?.getAsJsonObject("twoColumnBrowseResultsRenderer")
                     ?.getAsJsonArray("tabs")
                     ?.firstOrNull()?.asJsonObject
@@ -366,28 +381,141 @@ class VideoRepositoryImpl @Inject constructor(
                     ?.getAsJsonObject("content")
                     ?.getAsJsonObject("sectionListRenderer")
                     ?.getAsJsonArray("contents")
-                shelfItems?.forEach { section ->
-                    val secObj = section.asJsonObject
-                    secObj.getAsJsonObject("richGridRenderer")
-                        ?.getAsJsonArray("contents")?.forEach { item ->
-                            extractVideosFromJson(item.asJsonObject, items)
+            },
+            // Path 3: Search results twoColumnSearchResultsRenderer
+            { root: JsonObject? ->
+                root?.getAsJsonObject("contents")
+                    ?.getAsJsonObject("twoColumnSearchResultsRenderer")
+                    ?.getAsJsonArray("primaryContents")
+                    ?.firstOrNull()?.asJsonObject
+                    ?.getAsJsonObject("sectionListRenderer")
+                    ?.getAsJsonArray("contents")
+            },
+            // Path 4: Browse feed (channel/playlist) richGridRenderer
+            { root: JsonObject? ->
+                root?.getAsJsonObject("contents")
+                    ?.getAsJsonObject("twoColumnBrowseResultsRenderer")
+                    ?.getAsJsonArray("tabs")
+                    ?.asSequence()
+                    ?.mapNotNull { it.asJsonObject?.getAsJsonObject("tabRenderer")?.getAsJsonObject("content")?.getAsJsonObject("richGridRenderer")?.getAsJsonArray("contents") }
+                    ?.firstOrNull()
+            },
+            // Path 5: Generic richGridRenderer anywhere in the tree
+            { root: JsonObject? ->
+                findRichGridRendererRecursive(root)
+            },
+            // Path 6: Generic shelfRenderer anywhere
+            { root: JsonObject? ->
+                findShelfRendererRecursive(root)
+            }
+        )
+        
+        for ((pathIndex, pathFn) in extractionPaths.withIndex()) {
+            if (items.isNotEmpty()) break
+            try {
+                val contents = pathFn(root)
+                if (contents != null && contents.size() > 0) {
+                    Log.d(TAG, "Extraction path $pathIndex succeeded with ${contents.size()} items")
+                    contents.forEach { item ->
+                        if (item.isJsonObject) {
+                            val itemObj = item.asJsonObject
+                            if (itemObj.has("richSectionRenderer")) {
+                                val rsContent = itemObj.getAsJsonObject("richSectionRenderer")
+                                    ?.getAsJsonObject("content")
+                                rsContent?.let { extractVideosFromJson(it, items) }
+                            } else {
+                                extractVideosFromJson(itemObj, items)
+                            }
                         }
-                    secObj.getAsJsonObject("itemSectionRenderer")
-                        ?.getAsJsonArray("contents")?.forEach { item ->
-                            extractVideosFromJson(item.asJsonObject, items)
-                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Extraction path $pathIndex failed: ${e.message}")
+            }
+        }
+        
+        // Fallback: recursively search entire JSON tree for video renderers
+        if (items.isEmpty()) {
+            Log.d(TAG, "All structured paths failed, falling back to recursive search")
+            recursiveVideoSearch(root, items)
+        }
+        
+        Log.d(TAG, "Total extracted items: ${items.size}")
+        return items
+    }
+    
+    private fun findRichGridRendererRecursive(obj: JsonObject?): JsonArray? {
+        if (obj == null) return null
+        if (obj.has("richGridRenderer")) {
+            return obj.getAsJsonObject("richGridRenderer").getAsJsonArray("contents")
+        }
+        for (entry in obj.asJsonObject.entrySet()) {
+            val value = entry.value
+            if (value.isJsonObject) {
+                val result = findRichGridRendererRecursive(value.asJsonObject)
+                if (result != null) return result
+            } else if (value.isJsonArray) {
+                for (element in value.asJsonArray) {
+                    if (element.isJsonObject) {
+                        val result = findRichGridRendererRecursive(element.asJsonObject)
+                        if (result != null) return result
+                    }
                 }
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to parse homepage HTML: ${e.message}")
         }
-        return items
+        return null
+    }
+    
+    private fun findShelfRendererRecursive(obj: JsonObject?): JsonArray? {
+        if (obj == null) return null
+        if (obj.has("shelfRenderer")) {
+            val shelf = obj.getAsJsonObject("shelfRenderer")
+            return shelf.getAsJsonObject("content")
+                ?.getAsJsonObject("expandedShelfContentsRenderer")
+                ?.getAsJsonArray("items")
+        }
+        for (entry in obj.asJsonObject.entrySet()) {
+            val value = entry.value
+            if (value.isJsonObject) {
+                val result = findShelfRendererRecursive(value.asJsonObject)
+                if (result != null) return result
+            } else if (value.isJsonArray) {
+                for (element in value.asJsonArray) {
+                    if (element.isJsonObject) {
+                        val result = findShelfRendererRecursive(element.asJsonObject)
+                        if (result != null) return result
+                    }
+                }
+            }
+        }
+        return null
+    }
+    
+    private fun recursiveVideoSearch(obj: JsonObject?, items: MutableList<FeedItem>) {
+        if (obj == null) return
+        
+        // Check for direct video renderers
+        extractVideosFromJson(obj, items)
+        
+        // Recurse into all objects and arrays
+        obj.asJsonObject.entrySet().forEach { entry ->
+            val value = entry.value
+            if (value.isJsonObject) {
+                recursiveVideoSearch(value.asJsonObject, items)
+            } else if (value.isJsonArray) {
+                value.asJsonArray.forEach { element ->
+                    if (element.isJsonObject) {
+                        recursiveVideoSearch(element.asJsonObject, items)
+                    }
+                }
+            }
+        }
     }
 
     private suspend fun fetchBrowseFeed(browseId: String): BrowseParseResult = withContext(Dispatchers.IO) {
         try {
             var ctx = webContext()
-            val vd = cachedVisitorData ?: com.streamvault.app.di.NetworkModule.visitorData
+            val vd = visitorDataBootstrapper.getCachedVisitorData()
             vd?.let { ctx = ctx.copy(client = ctx.client.copy(visitorData = it)) }
             val request = BrowseRequest(context = ctx, browseId = browseId)
             val rawResponse = apiService.browseRaw(request)
@@ -733,14 +861,15 @@ class VideoRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun search(query: String, continuationToken: String?): Result<SearchResult> {
+    override suspend fun search(query: String, continuationToken: String?, params: String?): Result<SearchResult> {
         return try {
             var ctx = webContext()
-            val vd = cachedVisitorData ?: com.streamvault.app.di.NetworkModule.visitorData
+            val vd = visitorDataBootstrapper.getCachedVisitorData()
             vd?.let { ctx = ctx.copy(client = ctx.client.copy(visitorData = it)) }
             val request = com.streamvault.app.data.api.SearchRequest(
                 context = ctx,
-                query = query
+                query = query,
+                params = params
             )
             val rawResponse = apiService.searchRaw(request)
             Log.d(TAG, "Search response code: ${rawResponse.code()}")
@@ -1135,37 +1264,70 @@ class VideoRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getTrending(): Result<HomeFeed> {
+    override suspend fun getTrending(category: String): Result<HomeFeed> {
         return try {
+            if (category != "All") {
+                Log.d(TAG, "Trending category '$category' requested, using search-based fallback directly")
+                return Result.success(fetchSearchBasedTrending(category))
+            }
+
+            var ctx = webContext()
+            val vd = visitorDataBootstrapper.getCachedVisitorData()
+            vd?.let { ctx = ctx.copy(client = ctx.client.copy(visitorData = it)) }
             val request = com.streamvault.app.data.api.BrowseRequest(
-                context = defaultContext(),
+                context = ctx,
                 browseId = "FEtrending"
             )
-            val response = apiService.browse(request)
+            val response = apiService.browseRaw(request)
             if (response.isSuccessful) {
-                val body = response.body()
-                val items = mutableListOf<FeedItem>()
-                var nextToken: String? = null
-
-                body?.contents?.twoColumnBrowseResultsRenderer?.tabs?.forEach { tab ->
-                    val sectionContents = tab.content?.sectionListRenderer?.contents
-                    sectionContents?.forEach { section ->
-                        nextToken = extractItemsFromSection(section, items) ?: nextToken
-                    }
+                val rawBody = response.body()?.string() ?: ""
+                val result = parseBrowseResponse(rawBody)
+                if (result.items.isNotEmpty()) {
+                    Log.d(TAG, "Trending browse returned ${result.items.size} items")
+                    return Result.success(HomeFeed(items = result.items, continuationToken = result.continuationToken))
                 }
-                Result.success(HomeFeed(items = items, continuationToken = nextToken))
             } else {
-                Result.failure(Exception("Trending error: ${response.code()}"))
+                Log.w(TAG, "Trending browse error: ${response.code()}")
             }
+
+            Log.d(TAG, "Trending browse empty/failed, using search-based fallback")
+            val fallback = fetchSearchBasedTrending(category)
+            Result.success(fallback)
         } catch (e: Exception) {
-            Result.failure(e)
+            Log.w(TAG, "Trending exception: ${e.message}, using search-based fallback")
+            try {
+                Result.success(fetchSearchBasedTrending(category))
+            } catch (e2: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    private suspend fun fetchSearchBasedTrending(category: String): HomeFeed = withContext(Dispatchers.IO) {
+        val query = when (category) {
+            "Music" -> "music trending"
+            "Gaming" -> "gaming trending"
+            "Movies" -> "new movie trailers"
+            else -> "trending now"
+        }
+        return@withContext try {
+            val result = search(query, null)
+            val items = result.getOrNull()?.items ?: emptyList()
+            Log.d(TAG, "fetchSearchBasedTrending('$category') -> '$query': ${items.size} items")
+            HomeFeed(items = items, continuationToken = null)
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchSearchBasedTrending failed: ${e.message}")
+            HomeFeed(emptyList(), null)
         }
     }
 
     override suspend fun getSubscriptions(): Result<HomeFeed> {
         return try {
+            var ctx = defaultContext()
+            val vd = visitorDataBootstrapper.getCachedVisitorData()
+            vd?.let { ctx = ctx.copy(client = ctx.client.copy(visitorData = it)) }
             val request = BrowseRequest(
-                context = defaultContext(),
+                context = ctx,
                 browseId = "FEsubscriptions"
             )
             val response = apiService.browseRaw(request)
@@ -1780,28 +1942,22 @@ class VideoRepositoryImpl @Inject constructor(
 
     override suspend fun getRelatedVideos(videoId: String): Result<List<Video>> {
         return try {
-            val request = NextRequest(
-                context = defaultContext(),
-                videoId = videoId
-            )
+            // Phase 1: WEB client (parsing paths expect WEB-structured JSON)
+            var ctx = webContext()
+            val vd = visitorDataBootstrapper.getCachedVisitorData()
+            vd?.let { ctx = ctx.copy(client = ctx.client.copy(visitorData = it)) }
+            val request = NextRequest(context = ctx, videoId = videoId)
             val rawResponse = apiService.nextRaw(request)
             Log.d(TAG, "Related videos response code: ${rawResponse.code()}")
             if (rawResponse.isSuccessful) {
                 val rawBody = rawResponse.body()?.string() ?: ""
                 val items = parseRelatedResponse(rawBody)
                 if (items.isEmpty()) {
-                    Log.w(TAG, "No related videos found, trying ANDROID client...")
-                    val androidRequest = NextRequest(
-                        context = com.streamvault.app.data.api.ClientContext(
-                            client = com.streamvault.app.data.api.ClientInfo(
-                                clientName = "ANDROID",
-                                clientVersion = "21.03.36",
-                                androidSdkVersion = 36,
-                                platform = "MOBILE"
-                            )
-                        ),
-                        videoId = videoId
-                    )
+                    Log.w(TAG, "No related videos found with WEB client, trying ANDROID...")
+                    // Phase 2: ANDROID client with visitorData
+                    var androidCtx = defaultContext()
+                    vd?.let { androidCtx = androidCtx.copy(client = androidCtx.client.copy(visitorData = it)) }
+                    val androidRequest = NextRequest(context = androidCtx, videoId = videoId)
                     val androidResponse = apiService.nextRaw(androidRequest)
                     if (androidResponse.isSuccessful) {
                         val androidBody = androidResponse.body()?.string() ?: ""
@@ -1991,6 +2147,8 @@ class VideoRepositoryImpl @Inject constructor(
                         text.contains("week") || text.contains("day") || text.contains("hour") ||
                         text.contains("minute") || text.contains("second")) {
                         published = text
+                    } else if (channelName.isEmpty() && text.isNotBlank()) {
+                        channelName = text
                     }
                 }
             }
@@ -2215,7 +2373,14 @@ class VideoRepositoryImpl @Inject constructor(
             duration = duration,
             viewCount = views,
             publishedTime = "",
-            description = details.shortDescription ?: ""
+            description = details.shortDescription ?: "",
+            likeCount = details.likeCount?.toLongOrNull()?.let { count ->
+                when {
+                    count >= 1_000_000 -> "${count / 1_000_000}M"
+                    count >= 1_000 -> "${count / 1_000}K"
+                    else -> "$count"
+                }
+            } ?: ""
         )
     }
 

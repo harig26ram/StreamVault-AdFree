@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,9 +43,14 @@ fun LibraryScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     val tabs = listOf("History", "Watch Later", "Playlists", "Downloads")
 
-    Column(
-        modifier = Modifier.fillMaxSize()
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = { viewModel.refresh() },
+        state = rememberPullToRefreshState()
     ) {
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
         TopAppBar(
             title = {
                 Text(
@@ -97,6 +104,7 @@ fun LibraryScreen(
                 onDeleteClick = { viewModel.deleteDownload(it) },
                 onPauseClick = { viewModel.pauseDownload(it) }
             )
+        }
         }
     }
 }

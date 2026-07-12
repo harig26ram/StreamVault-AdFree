@@ -33,11 +33,11 @@ class TrendingViewModel @Inject constructor(
         loadTrending()
     }
 
-    fun loadTrending() {
+    fun loadTrending(category: String = "All") {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             val result = withTimeoutOrNull(15000L) {
-                repository.getTrending()
+                repository.getTrending(category)
             }
             if (result != null) {
                 result.fold(
@@ -65,12 +65,13 @@ class TrendingViewModel @Inject constructor(
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isRefreshing = true)
-            repository.getTrending().fold(
+            _uiState.value = _uiState.value.copy(isRefreshing = true, error = null)
+            repository.getTrending(_uiState.value.selectedCategory).fold(
                 onSuccess = { feed ->
                     _uiState.value = _uiState.value.copy(
                         feedItems = feed.items,
-                        isRefreshing = false
+                        isRefreshing = false,
+                        error = null
                     )
                 },
                 onFailure = { e ->
@@ -85,5 +86,6 @@ class TrendingViewModel @Inject constructor(
 
     fun selectCategory(category: String) {
         _uiState.value = _uiState.value.copy(selectedCategory = category)
+        loadTrending(category)
     }
 }

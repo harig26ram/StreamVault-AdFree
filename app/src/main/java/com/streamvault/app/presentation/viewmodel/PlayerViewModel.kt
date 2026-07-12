@@ -13,6 +13,7 @@ import com.streamvault.app.data.local.WatchHistoryEntity
 import com.streamvault.app.data.local.WatchLaterEntity
 import com.streamvault.app.data.download.DownloadManager
 import com.streamvault.app.domain.model.CaptionTrack
+import com.streamvault.app.domain.model.Chapter
 import com.streamvault.app.domain.model.Comment
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.model.VideoFormat
@@ -94,9 +95,11 @@ data class PlayerUiState(
     val isMiniPlayerEnabled: Boolean = true,
     val isDownloaded: Boolean = false,
     val isDownloading: Boolean = false,
+    val isPaused: Boolean = false,
     val downloadProgress: Int = 0,
-    val isPlayingOffline: Boolean = false
-)
+      val isPlayingOffline: Boolean = false,
+      val chapters: List<Chapter> = emptyList()
+  )
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
@@ -120,7 +123,7 @@ class PlayerViewModel @Inject constructor(
         skipSilenceEnabled = settingsManager.skipSilence,
         equalizerEnabled = settingsManager.equalizerEnabled
     )
-    val engine = PlayerEngine(engineConfig)
+    val engine = PlayerEngine(engineConfig, context)
     private val sponsorBlockManager = SponsorBlockManager()
 
     val sponsorBlockEnabled: Boolean get() = settingsManager.sponsorBlock
@@ -143,6 +146,23 @@ class PlayerViewModel @Inject constructor(
 
     companion object {
         private const val TAG = "PlayerVM"
+        private val CHAPTER_REGEX = Regex("""^(\d{1,2}):(\d{2})(?::(\d{2}))?\s+(.+)$""", RegexOption.MULTILINE)
+
+        fun parseChaptersFromDescription(description: String): List<Chapter> {
+            if (description.isBlank()) return emptyList()
+            return CHAPTER_REGEX.findAll(description).mapNotNull { match ->
+                val groups = match.groupValues
+                val h = if (groups[3].isNotEmpty()) groups[3].toLongOrNull() ?: 0L else 0L
+                val m = groups[1].toLongOrNull() ?: return@mapNotNull null
+                val s = groups[2].toLongOrNull() ?: return@mapNotNull null
+                val title = groups[4].trim()
+                if (title.isEmpty()) return@mapNotNull null
+                Chapter(
+                    title = title,
+                    startTimeMs = (h * 3600 + m * 60 + s) * 1000
+                )
+            }.toList()
+        }
     }
 
     init {
@@ -234,7 +254,8 @@ class PlayerViewModel @Inject constructor(
                     infoDeferred.await().fold(
                         onSuccess = { video ->
                             Log.d(TAG, "loadVideo: info success, title=${video.title}")
-                            _uiState.update { it.copy(video = video) }
+                            val chapters = parseChaptersFromDescription(video.description)
+                            _uiState.update { it.copy(video = video, chapters = chapters) }
                             addToWatchHistoryUseCase(video)
                             checkSavedPosition(id)
                         },
@@ -418,6 +439,7 @@ class PlayerViewModel @Inject constructor(
                 },
                 onFailure = { e ->
                     Log.e(TAG, "loadFormats: FAILED: ${e.message}", e)
+                    _uiState.update { it.copy(error = "Failed to load video formats: ${e.message}", isLoading = false) }
                 }
             )
         }
@@ -425,10 +447,26 @@ class PlayerViewModel @Inject constructor(
 
     private fun loadBestStream(formats: List<VideoFormat>) {
         Log.d(TAG, "loadBestStream: formats.size=${formats.size}, surfaceReady=$surfaceReady")
-        if (formats.isEmpty()) return
+        if (formats.isEmpty()) {
+            _uiState.update { it.copy(error = "No playable streams found. Tap to retry.", isLoading = false) }
+            return
+        }
 
-        val bestVideo = formats.filter { it.isAdaptive && it.isVideo }
-            .maxByOrNull { it.height ?: 0 }
+        val qualitySetting = settingsManager.videoQuality
+        val targetHeight: Int? = when (qualitySetting) {
+            "Auto", "Highest" -> null
+            else -> qualitySetting.removeSuffix("p").toIntOrNull()
+        }
+
+        val videoFormats = formats.filter { it.isAdaptive && it.isVideo }
+        val bestVideo = if (targetHeight == null) {
+            videoFormats.maxByOrNull { it.height ?: 0 }
+        } else {
+            videoFormats
+                .filter { (it.height ?: 0) >= targetHeight }
+                .minByOrNull { it.height ?: 0 }
+                ?: videoFormats.maxByOrNull { it.height ?: 0 }
+        }
         val bestAudio = formats.filter { it.isAdaptive && it.isAudio }
             .maxByOrNull { it.bitrate }
 
@@ -486,7 +524,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun autoPlay() {
         viewModelScope.launch {
-            delay(800)
+            delay(200)
             val state = _uiState.value.playerState
             if (state !is PlayerState.Error) {
                 engine.play()
@@ -528,6 +566,8 @@ class PlayerViewModel @Inject constructor(
             return
         }
 
+        if (!settingsManager.autoplay) return
+
         if (currentIdx in queue.indices && currentIdx < queue.size - 1) {
             val nextIdx = currentIdx + 1
             _uiState.update { it.copy(queueIndex = nextIdx) }
@@ -551,12 +591,36 @@ class PlayerViewModel @Inject constructor(
         try {
             val intent = Intent(context, PlaybackService::class.java)
             context.startForegroundService(intent)
-            PlaybackServiceInstance.service?.playVideo(
-                engine,
-                video.title,
-                video.channelName,
-                video.thumbnailUrl
-            )
+            if (PlaybackServiceInstance.connection == null) {
+                PlaybackServiceInstance.connection = object : android.content.ServiceConnection {
+                    override fun onServiceConnected(name: android.content.ComponentName?, binder: android.os.IBinder?) {
+                        val svc = (binder as? PlaybackService.LocalBinder)?.getService()
+                        PlaybackServiceInstance.service = svc
+                        svc?.playVideo(
+                            engine,
+                            video.title,
+                            video.channelName,
+                            video.thumbnailUrl
+                        )
+                    }
+
+                    override fun onServiceDisconnected(name: android.content.ComponentName?) {
+                        PlaybackServiceInstance.service = null
+                    }
+                }
+                context.bindService(
+                    intent,
+                    PlaybackServiceInstance.connection!!,
+                    android.content.Context.BIND_AUTO_CREATE
+                )
+            } else {
+                PlaybackServiceInstance.service?.playVideo(
+                    engine,
+                    video.title,
+                    video.channelName,
+                    video.thumbnailUrl
+                )
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start background service: ${e.message}")
         }
@@ -814,12 +878,14 @@ class PlayerViewModel @Inject constructor(
                 val isCompleted = entity.downloadStatus == com.streamvault.app.data.local.DownloadStatus.COMPLETED.name
                 val isDownloading = entity.downloadStatus == com.streamvault.app.data.local.DownloadStatus.DOWNLOADING.name ||
                     entity.downloadStatus == com.streamvault.app.data.local.DownloadStatus.PENDING.name
+                val isPaused = entity.downloadStatus == com.streamvault.app.data.local.DownloadStatus.PAUSED.name
                 val isFailed = entity.downloadStatus == com.streamvault.app.data.local.DownloadStatus.FAILED.name
 
                 _uiState.update {
                     it.copy(
                         isDownloaded = isCompleted,
                         isDownloading = isDownloading,
+                        isPaused = isPaused,
                         downloadProgress = entity.progress
                     )
                 }
@@ -832,13 +898,17 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun pauseDownload() {
-        downloadManager.pauseDownload(_currentVideoId.value)
-        _uiState.update { it.copy(isDownloading = false) }
+        viewModelScope.launch {
+            downloadManager.pauseDownload(_currentVideoId.value)
+            _uiState.update { it.copy(isDownloading = false, isPaused = true) }
+        }
     }
 
     fun cancelDownload() {
-        downloadManager.cancelDownload(_currentVideoId.value)
-        _uiState.update { it.copy(isDownloading = false, downloadProgress = 0) }
+        viewModelScope.launch {
+            downloadManager.cancelDownload(_currentVideoId.value)
+            _uiState.update { it.copy(isDownloading = false, isPaused = false, downloadProgress = 0) }
+        }
     }
 
     fun deleteDownload() {
@@ -898,8 +968,10 @@ class PlayerViewModel @Inject constructor(
         } catch (_: Exception) {}
         engine.release()
     }
+
 }
 
 object PlaybackServiceInstance {
     var service: PlaybackService? = null
+    var connection: android.content.ServiceConnection? = null
 }

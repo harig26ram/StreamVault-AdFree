@@ -3,6 +3,7 @@ package com.streamvault.app
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import com.streamvault.app.data.bootstrap.VisitorDataBootstrapper
 import com.streamvault.app.data.download.DownloadManager
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -19,12 +20,18 @@ class StreamVaultApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var downloadManager: DownloadManager
 
+    @Inject
+    lateinit var visitorDataBootstrapper: VisitorDataBootstrapper
+
     override fun onCreate() {
         super.onCreate()
         com.streamvault.app.notification.NotificationHelper.createNotificationChannels(this)
         com.streamvault.app.notification.NotificationHelper.scheduleSubscriptionCheck(this)
         CoroutineScope(Dispatchers.IO).launch {
             downloadManager.resumePendingDownloads()
+        }
+        CoroutineScope(Dispatchers.IO).launch {
+            visitorDataBootstrapper.ensureBootstrapped()
         }
     }
 

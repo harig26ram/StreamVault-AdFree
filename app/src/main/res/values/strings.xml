@@ -67,6 +67,7 @@
     <string name="browse_channels">Browse channels</string>
     <string name="latest_from_subscriptions">Latest from subscriptions</string>
     <string name="see_all">See all</string>
+    <string name="your_story">Your story</string>
     <string name="clear_queue_confirm">Clear entire queue?</string>
     <string name="clear_queue_message">This will remove all videos from the queue.</string>
     <string name="yes">Yes</string>

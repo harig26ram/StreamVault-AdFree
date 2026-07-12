@@ -17,6 +17,7 @@ import javax.inject.Inject
 data class PlaylistUiState(
     val playlist: Playlist? = null,
     val isLoading: Boolean = false,
+    val isRefreshing: Boolean = false,
     val error: String? = null,
     val streamUrl: String? = null
 )
@@ -53,6 +54,26 @@ class PlaylistViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(
                         error = e.message,
                         isLoading = false
+                    )
+                }
+            )
+        }
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isRefreshing = true, error = null)
+            getPlaylistUseCase(playlistId).fold(
+                onSuccess = { playlist ->
+                    _uiState.value = _uiState.value.copy(
+                        playlist = playlist,
+                        isRefreshing = false
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        error = e.message,
+                        isRefreshing = false
                     )
                 }
             )

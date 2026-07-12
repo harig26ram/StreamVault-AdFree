@@ -12,11 +12,11 @@ import kotlinx.coroutines.flow.Flow
 
 interface VideoRepository {
     suspend fun getHomeFeed(continuationToken: String?): Result<HomeFeed>
-    suspend fun search(query: String, continuationToken: String?): Result<SearchResult>
+    suspend fun search(query: String, continuationToken: String?, params: String? = null): Result<SearchResult>
     suspend fun getVideoInfo(videoId: String): Result<Video>
     suspend fun getChannelInfo(channelId: String): Result<Channel>
     suspend fun getPlaylist(playlistId: String): Result<Playlist>
-    suspend fun getTrending(): Result<HomeFeed>
+    suspend fun getTrending(category: String = "All"): Result<HomeFeed>
     suspend fun getSubscriptions(): Result<HomeFeed>
     suspend fun getVideoStreamUrl(videoId: String): Result<String>
     suspend fun getVideoFormats(videoId: String): Result<List<VideoFormat>>

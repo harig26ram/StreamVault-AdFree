@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.streamvault.app.auth.AuthManager
 import com.streamvault.app.data.api.YouTubeApiService
+import com.streamvault.app.data.bootstrap.VisitorDataBootstrapper
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -29,18 +30,15 @@ object NetworkModule {
 
     private const val INNERTUBE_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 
-    @Volatile
-    var visitorData: String? = null
-
-    @Volatile
-    var innerTubeApiKey: String? = null
-
     private val refreshLock = Any()
 
     @Provides
     @Singleton
     @Named("youtube")
-    fun provideYouTubeOkHttpClient(authManager: AuthManager): OkHttpClient {
+    fun provideYouTubeOkHttpClient(
+        authManager: AuthManager,
+        bootstrapper: VisitorDataBootstrapper
+    ): OkHttpClient {
         val clientBuilder = OkHttpClient.Builder()
 
         if (com.streamvault.app.BuildConfig.DEBUG) {
@@ -55,7 +53,8 @@ object NetworkModule {
             val url = original.url
 
             val newUrlBuilder = if (url.encodedPath.startsWith("/youtubei/v1/")) {
-                val effectiveKey = innerTubeApiKey ?: INNERTUBE_API_KEY
+                // Get API key from bootstrapper (cached or fresh)
+                val effectiveKey = bootstrapper.getCachedApiKey() ?: INNERTUBE_API_KEY
                 url.newBuilder()
                     .addQueryParameter("key", effectiveKey)
             } else {
@@ -75,6 +74,8 @@ object NetworkModule {
                 builder.header("Authorization", "Bearer $accessToken")
             }
 
+            // Get visitorData from bootstrapper (cached or fresh)
+            val visitorData = bootstrapper.getCachedVisitorData()
             visitorData?.let {
                 builder.header("X-Goog-Visitor-Data", it)
             }

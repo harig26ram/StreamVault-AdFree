@@ -152,6 +152,13 @@ fun MainNavGraph(
                         },
                         onChannelClick = { channelId ->
                             navController.navigate(Screen.Channel.createRoute(channelId))
+                        },
+                        onSearchNavigate = {
+                            navController.navigate(Screen.Search.route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
                         }
                     )
                 }
@@ -188,8 +195,16 @@ fun MainNavGraph(
 
                 composable(Screen.Login.route) {
                     LoginScreen(
-                        onBack = { navController.popBackStack() },
-                        onLoginSuccess = { navController.popBackStack() }
+                        onBack = {
+                            try { navController.popBackStack() } catch (_: Exception) {
+                                navController.navigate(Screen.Home.route) { popUpTo(0) { inclusive = true } }
+                            }
+                        },
+                        onLoginSuccess = {
+                            try { navController.popBackStack() } catch (_: Exception) {
+                                navController.navigate(Screen.Home.route) { popUpTo(0) { inclusive = true } }
+                            }
+                        }
                     )
                 }
 
@@ -200,7 +215,11 @@ fun MainNavGraph(
                     )
                 ) {
                     PlayerScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = {
+                            try { navController.popBackStack() } catch (_: Exception) {
+                                navController.navigate(Screen.Home.route) { popUpTo(0) { inclusive = true } }
+                            }
+                        },
                         onChannelClick = { channelId ->
                             navController.navigate(Screen.Channel.createRoute(channelId))
                         },
@@ -217,7 +236,11 @@ fun MainNavGraph(
                     )
                 ) {
                     ChannelScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = {
+                            try { navController.popBackStack() } catch (_: Exception) {
+                                navController.navigate(Screen.Home.route) { popUpTo(0) { inclusive = true } }
+                            }
+                        },
                         onVideoClick = { videoId ->
                             navController.navigate(Screen.Player.createRoute(videoId))
                         }
@@ -231,7 +254,11 @@ fun MainNavGraph(
                     )
                 ) {
                     PlaylistScreen(
-                        onBack = { navController.popBackStack() },
+                        onBack = {
+                            try { navController.popBackStack() } catch (_: Exception) {
+                                navController.navigate(Screen.Home.route) { popUpTo(0) { inclusive = true } }
+                            }
+                        },
                         onVideoClick = { videoId ->
                             navController.navigate(Screen.Player.createRoute(videoId))
                         }
@@ -240,7 +267,11 @@ fun MainNavGraph(
 
                 composable(Screen.Equalizer.route) {
                     EqualizerScreen(
-                        onBack = { navController.popBackStack() }
+                        onBack = {
+                            try { navController.popBackStack() } catch (_: Exception) {
+                                navController.navigate(Screen.Home.route) { popUpTo(0) { inclusive = true } }
+                            }
+                        }
                     )
                 }
             }

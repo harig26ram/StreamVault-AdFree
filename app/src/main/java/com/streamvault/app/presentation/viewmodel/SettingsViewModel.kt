@@ -2,6 +2,8 @@ package com.streamvault.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.streamvault.app.auth.AuthManager
+import com.streamvault.app.auth.UserProfile
 import com.streamvault.app.data.local.SettingsManager
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.usecase.ClearWatchHistoryUseCase
@@ -28,19 +30,23 @@ data class SettingsUiState(
     val rememberPlayback: Boolean = true,
     val defaultTab: String = "home",
     val equalizerEnabled: Boolean = false,
+    val equalizerPreset: Int = -1,
+    val userProfile: UserProfile? = null,
     val watchHistory: List<Video> = emptyList(),
     val isLoading: Boolean = false,
     val showClearHistoryDialog: Boolean = false,
     val showAboutDialog: Boolean = false,
     val showQualityDialog: Boolean = false,
-    val showDefaultTabDialog: Boolean = false
+    val showDefaultTabDialog: Boolean = false,
+    val showEqualizerPresetDialog: Boolean = false
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val getWatchHistoryUseCase: GetWatchHistoryUseCase,
     private val clearWatchHistoryUseCase: ClearWatchHistoryUseCase,
-    private val settingsManager: SettingsManager
+    private val settingsManager: SettingsManager,
+    private val authManager: AuthManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -66,7 +72,9 @@ class SettingsViewModel @Inject constructor(
             skipSilence = settingsManager.skipSilence,
             rememberPlayback = settingsManager.rememberPlayback,
             defaultTab = settingsManager.defaultTab,
-            equalizerEnabled = settingsManager.equalizerEnabled
+            equalizerEnabled = settingsManager.equalizerEnabled,
+            equalizerPreset = settingsManager.equalizerPreset,
+            userProfile = authManager.getUserProfile()
         )
     }
 
@@ -173,6 +181,37 @@ class SettingsViewModel @Inject constructor(
 
     fun dismissDefaultTabDialog() {
         _uiState.value = _uiState.value.copy(showDefaultTabDialog = false)
+    }
+
+    fun showEqualizerPresetDialog() {
+        _uiState.value = _uiState.value.copy(showEqualizerPresetDialog = true)
+    }
+
+    fun dismissEqualizerPresetDialog() {
+        _uiState.value = _uiState.value.copy(showEqualizerPresetDialog = false)
+    }
+
+    fun setEqualizerPreset(preset: Int) {
+        settingsManager.equalizerPreset = preset
+        _uiState.value = _uiState.value.copy(equalizerPreset = preset, showEqualizerPresetDialog = false)
+    }
+
+    fun signOut() {
+        authManager.signOut()
+    }
+
+    fun prepareAccountSwitch() {
+        authManager.prepareAccountSwitch()
+    }
+
+    fun getSignInIntent(): android.content.Intent = authManager.getSignInIntent()
+
+    fun completeSignIn(task: com.google.android.gms.tasks.Task<com.google.android.gms.auth.api.signin.GoogleSignInAccount>) {
+        authManager.completeSignIn(task, viewModelScope)
+    }
+
+    fun refreshUserProfile() {
+        _uiState.value = _uiState.value.copy(userProfile = authManager.getUserProfile())
     }
 
     fun clearWatchHistory() {

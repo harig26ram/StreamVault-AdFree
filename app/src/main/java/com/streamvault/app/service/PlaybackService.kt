@@ -93,7 +93,12 @@ class PlaybackService : Service() {
             addAction(ACTION_PAUSE)
             addAction(ACTION_STOP)
         }
-        registerReceiver(mediaButtonReceiver, filter)
+        androidx.core.content.ContextCompat.registerReceiver(
+            this,
+            mediaButtonReceiver,
+            filter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     fun attachEngine(playerEngine: PlayerEngine) {
@@ -129,7 +134,6 @@ class PlaybackService : Service() {
             MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, videoTitle)
                 .putString(MediaMetadata.METADATA_KEY_ARTIST, videoChannelName)
-                .putString(MediaMetadata.METADATA_KEY_ALBUM_ART, thumbnailUrl)
                 .putLong(MediaMetadata.METADATA_KEY_DURATION, playerEngine.duration.value)
                 .build()
         )
@@ -263,7 +267,17 @@ class PlaybackService : Service() {
             ACTION_PAUSE -> engine?.pause()
             ACTION_STOP -> stopPlayback()
         }
+        // Promote to foreground IMMEDIATELY so Android 12+ does not throw
+        // ForegroundServiceDidNotStartInTimeException (5s rule) when the engine
+        // is attached a moment later via bindService.
+        if (engine == null) {
+            startForeground(NOTIFICATION_ID, buildLoadingNotification())
+        }
         return START_STICKY
+    }
+
+    private fun buildLoadingNotification(): Notification {
+        return buildNotification("Preparing playback…", "FreedomPlay")
     }
 
     override fun onDestroy() {

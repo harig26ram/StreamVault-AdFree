@@ -199,7 +199,8 @@ data class VideoDetails(
     val isPrivate: Boolean?,
     val isUnpluggedCorpus: Boolean?,
     val isLiveContent: Boolean?,
-    val isUpcoming: Boolean?
+    val isUpcoming: Boolean?,
+    val likeCount: String? = null
 )
 
 data class StreamingData(
