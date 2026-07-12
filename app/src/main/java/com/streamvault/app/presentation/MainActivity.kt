@@ -11,6 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.core.content.ContextCompat
 import com.streamvault.app.data.local.SettingsManager
 import com.streamvault.app.presentation.navigation.MainNavGraph
@@ -24,6 +25,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var settingsManager: SettingsManager
+
+    @Inject
+    lateinit var themeManager: com.streamvault.app.presentation.ui.theme.ThemeManager
 
     var pipModeActive by mutableStateOf(false)
         private set
@@ -48,6 +52,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             var isDarkMode by remember { mutableStateOf(settingsManager.isDarkMode) }
             var isAmoledMode by remember { mutableStateOf(settingsManager.isAmoledMode) }
+            val accent by themeManager.selectedTheme.collectAsState()
             var deepLinkUri by remember { mutableStateOf(intent?.data) }
 
             DisposableEffect(settingsManager) {
@@ -69,7 +74,8 @@ class MainActivity : ComponentActivity() {
 
             FreedomPlayTheme(
                 darkTheme = isDarkMode,
-                amoledMode = isAmoledMode
+                amoledMode = isAmoledMode,
+                accent = accent.accent
             ) {
                 val startDestination = when {
                     intent?.hasExtra("navigate_to") == true &&
