@@ -486,18 +486,33 @@ if (!cookie.isNullOrBlank() && request.url.encodedPath.contains("/youtubei/v1/br
 }
 ```
 
-- [ ] **Step 2: Reorder getHomeFeed tiers in VideoRepositoryImpl**
+- [ ] **Step 2: Reorder getHomeFeed tiers in VideoRepositoryImpl + cache last good feed**
 
-In `getHomeFeed()`, make the cookie-ML feed the FIRST tier, before the existing local search feed:
+Add a private in-memory cache field to `VideoRepositoryImpl` (survives config changes because the repository is a `@Singleton`; no Room migration needed):
+
+```kotlin
+private var cachedPersonalizedFeed: List<Video>? = null
+```
+
+In `getHomeFeed()`, make the cookie-ML feed the FIRST tier; on success CACHE it; on failure/offline RETURN the cache (then fall through to local feed if cache is null). This is the on-device cache hardening from the user-approved "robust, hassle-free" requirement.
 
 ```kotlin
 return flow {
-    // Tier 0: real personalized (cookie-ML)
-    cookieFeedRepository.getPersonalizedHomeFeed().onSuccess { vids ->
-        if (vids.isNotEmpty()) { emit(vids); return@flow }
-    }
+    // Tier 0: real personalized (cookie-ML) — cached for offline/rotation resilience
+    cookieFeedRepository.getPersonalizedHomeFeed()
+        .onSuccess { vids ->
+            if (vids.isNotEmpty()) {
+                cachedPersonalizedFeed = vids   // cache last good feed
+                emit(vids); return@flow
+            }
+        }
+        .onFailure {
+            cachedPersonalizedFeed?.let {   // serve cache if we have one
+                emit(it); return@flow
+            }
+        }
     // Tier 1..3: existing local search / homepage / trending fallback
-    // (existing logic unchanged, now runs only when cookie feed empty/fails)
+    // (existing logic unchanged, now runs only when cookie feed empty/fails AND no cache)
     ...
 }
 ```
@@ -658,6 +673,8 @@ git commit -m "feat: collapsible Download/EQ panels in player"
 
 In the Account section of `SettingsScreen.kt`, add a `SettingsItem` "Connect YouTube account" that opens an `AlertDialog` with a `TextField` (placeholder text referencing copying cookies from browser dev-tools) and Connect/Disconnect buttons. On Connect call `cookieStore.save(text)`; when `isConnectedFlow` is true show "Disconnect" which calls `cookieStore.clear()`.
 
+Also add a `SettingsItem` "Reconnect cookies" (shown only when `cookieStore.isConnectedFlow` is true AND the home feed is currently using the local fallback — i.e. `HomeViewModel` reports `feedIsLocalFallback == true`). Tapping it re-opens the same Connect dialog prefilled, so a member can re-paste a fresh cookie when YouTube rotates the session. Expose `feedIsLocalFallback: Boolean` from `HomeViewModel.uiState` (set in Task 9).
+
 - [ ] **Step 2: Write docs/CLOSED_CIRCLE_SETUP.md**
 
 Document the closed-circle distribution steps:
@@ -681,6 +698,57 @@ git commit -m "feat: connect-account cookie dialog + closed-circle setup doc"
 
 ---
 
+### Task 9: Reconnect-cookies banner + local-fallback flag (robustness hardening)
+
+**Files:**
+- Create: `app/src/main/res/values/strings.xml` entry `feed_using_local_fallback` (stringResource for banner).
+- Modify: `app/src/main/java/com/streamvault/app/presentation/viewmodel/HomeViewModel.kt` (add `feedIsLocalFallback` to `UiState`, set when the emitted feed came from local/trending rather than cookie-ML).
+- Modify: `app/src/main/java/com/streamvault/app/presentation/ui/screen/HomeScreen.kt` (banner above `MagazineFeed` when `feedIsLocalFallback`, with one-tap "Reconnect" → opens Settings connect dialog via a `onReconnectClick` callback).
+
+**Interfaces:**
+- Produces: `HomeUiState.feedIsLocalFallback: Boolean`, `HomeViewModel` sets it true when `VideoRepositoryImpl.getHomeFeed()` emits from the local/trending tier, false when cookie-ML (or cached) feed is used. `HomeScreen(onReconnectClick)` callback.
+
+- [ ] **Step 1: Add `feedIsLocalFallback` to HomeViewModel**
+
+Extend `HomeUiState` with `val feedIsLocalFallback: Boolean = false`. In `HomeViewModel`, collect the repository feed; when the cookie-ML/cache tier succeeds set it `false`, and when it falls through to the local/trending tier set it `true`. (The repository already emits cookie-ML first; the ViewModel can detect the tier by comparing the source — keep a boolean returned from the repository call or track which `emit` fired.)
+
+- [ ] **Step 2: Add the reconnect banner to HomeScreen**
+
+At the top of the content (inside `PullToRefreshBox`, above `MagazineFeed`), render a banner when `uiState.feedIsLocalFallback` is true:
+
+```kotlin
+if (uiState.feedIsLocalFallback) {
+    Row(Modifier.fillMaxWidth().padding(12.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp)).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(stringResource(R.string.feed_using_local_fallback), Modifier.weight(1f), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = onReconnectClick) { Text("Reconnect", color = MaterialTheme.colorScheme.primary) }
+    }
+}
+```
+
+Add `onReconnectClick: () -> Unit = {}` to `HomeScreen`'s signature and pass it through from the nav graph / MainActivity (it should open `SettingsScreen` scrolled to / launch the connect dialog — in practice navigate to Settings).
+
+- [ ] **Step 3: Add string resource**
+
+In `app/src/main/res/values/strings.xml` add:
+```xml
+<string name="feed_using_local_fallback">Personalized feed unavailable — showing recommendations from your activity. Reconnect your YouTube account for your real feed.</string>
+```
+
+- [ ] **Step 4: Build**
+
+Run: `.\gradlew.bat assembleDebug`
+Expected: BUILD SUCCESSFUL.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add app/src/main/java/com/streamvault/app/presentation/viewmodel/HomeViewModel.kt app/src/main/java/com/streamvault/app/presentation/ui/screen/HomeScreen.kt app/src/main/res/values/strings.xml
+git commit -m "feat: reconnect-cookies banner + local-fallback flag (robust feed)"
+```
+
+---
+
 ### Final verification
 
 - [ ] **Run full unit suite + debug build**
@@ -689,9 +757,10 @@ Run: `.\gradlew.bat testDebugUnitTest ; .\gradlew.bat assembleDebug`
 Expected: all tests PASS, BUILD SUCCESSFUL.
 
 - [ ] **Install on emulator, verify:**
-1. Settings → Theme → switch accents → UI recolors live (no restart needed).
-2. Home shows magazine grid (featured + 2-col). Pull-to-refresh still works.
-3. Player → Download panel open by default, EQ hidden; expand EQ works.
-4. (Optional) Paste YouTube cookies → Home feed becomes real personalized recommendations; clearing cookie reverts to local feed.
+ 1. Settings → Theme → switch accents → UI recolors live (no restart needed).
+ 2. Home shows magazine grid (featured + 2-col). Pull-to-refresh still works.
+ 3. Player → Download panel open by default, EQ hidden; expand EQ works.
+ 4. (Optional) Paste YouTube cookies → Home feed becomes real personalized recommendations; clearing cookie reverts to local feed.
+ 5. **Robustness hardening checks:** with cookies connected, paste a bad/expired cookie (or go offline) → feed still shows the last cached personalized feed (no blank screen); when neither cache nor cookie works, the reconnect banner appears with a one-tap Reconnect that opens the connect dialog; re-pasting a good cookie restores the real feed.
 
 - [ ] **Commit any verification fixes, then push to `dev` if cleared by user.**
