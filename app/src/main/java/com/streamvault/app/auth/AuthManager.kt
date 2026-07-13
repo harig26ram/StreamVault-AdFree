@@ -80,7 +80,7 @@ class AuthManager @Inject constructor(
             .requestEmail()
             .requestProfile()
             .requestScopes(Scope("https://www.googleapis.com/auth/youtube.readonly"))
-            .requestServerAuthCode(WEB_CLIENT_ID, false)
+            .requestServerAuthCode(WEB_CLIENT_ID, true)
             .build()
         GoogleSignIn.getClient(context, gso)
     }
@@ -324,9 +324,8 @@ class AuthManager @Inject constructor(
                             _authState.value = AuthState.Authenticated(profile)
                             Log.d(TAG, "Session restored after refresh: ${profile.displayName}")
                         } else {
-                            clearSession()
                             _authState.value = AuthState.Unauthenticated
-                            Log.d(TAG, "Refresh failed, session cleared")
+                            Log.w(TAG, "Refresh failed, session marked unauthenticated")
                         }
                     }
                 }

@@ -8,6 +8,8 @@ import com.streamvault.app.data.local.SettingsManager
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.usecase.ClearWatchHistoryUseCase
 import com.streamvault.app.domain.usecase.GetWatchHistoryUseCase
+import com.streamvault.app.presentation.ui.theme.Theme
+import com.streamvault.app.presentation.ui.theme.ThemeManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,11 +48,18 @@ class SettingsViewModel @Inject constructor(
     private val getWatchHistoryUseCase: GetWatchHistoryUseCase,
     private val clearWatchHistoryUseCase: ClearWatchHistoryUseCase,
     private val settingsManager: SettingsManager,
-    private val authManager: AuthManager
+    private val authManager: AuthManager,
+    private val themeManager: ThemeManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    val selectedTheme: StateFlow<Theme> = themeManager.selectedTheme
+
+    fun selectTheme(theme: Theme) {
+        themeManager.setTheme(theme)
+    }
 
     init {
         loadSettings()

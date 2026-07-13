@@ -1,4 +1,4 @@
-# Hybrid Personalized Feed + All-Account Login — Design Spec
+# Personalized Feed (Cookie-ML) + Themeable Magazine UI + Closed-Circle Login — Design Spec
 
 **Date:** 2026-07-12
 **Status:** Approved (design), pending implementation plan
@@ -6,95 +6,112 @@
 
 ## Goal
 
-1. Give the user a **personalized home feed** driven by their Google account, like the real YouTube feed — implemented as a **Hybrid**: official YouTube Data API v3 subscriptions feed blended with the existing local watch-history/search recommendations.
-2. Enable **all Google accounts** to sign in (not just the ~100 test users allowed in OAuth "Testing" mode), with robust graceful-degradation methods so the app never hard-breaks for unverified/blocked accounts.
-3. Make the app **verification-ready** and deliver the Google Cloud Console + privacy-policy + demo-video package so the user can submit for OAuth verification.
+1. Give the user a **personalized home feed driven by their Google/YouTube account**, like the real YouTube feed — implemented as a **Cookie-ML feed**: real personalized InnerTube browse (`FEwhat_to_watch`) using the user's YouTube session cookies, blended with the existing local watch-history/search recommendations as a fallback base.
+2. Ship a **themeable magazine-grid UI**: home feed uses a 2-column magazine grid (1 featured wide card + compact detail rows), and the app exposes an **in-app theme selector** with all accent themes selectable at runtime.
+3. Make **premium controls collapsible** in the player (Download/EQ behind expandable panels, EQ hidden by default) — never always-open clutter.
+4. Enable **closed-circle distribution** — shared privately with a small group (well under 100 people), NOT published to the Play Store. Sign-in via Google OAuth **test users** so no verification is needed.
 
 ## Core Principle: Graceful Degradation
 
-The **local layer always produces a feed** (no auth needed). The **official layer enhances** it when the OAuth token works. If sign-in fails, the account isn't verified, or Data API quota is exhausted → the app silently falls back to local-only. Nothing ever hard-breaks. The official subscriptions feed is an ENHANCEMENT, never a hard dependency.
+The **local layer always produces a feed** (no auth needed). The **cookie-ML layer enhances** it when valid YouTube session cookies are present. If cookies are missing, expired, or the personalized request fails → the app silently falls back to local-only. Nothing ever hard-breaks. The personalized feed is an ENHANCEMENT, never a hard dependency.
 
 ## Architecture
 
 Two independent layers, blended at the feed level:
 
-- **Official layer (NEW):** YouTube Data API v3 (`https://www.googleapis.com/youtube/v3/`), authenticated with the OAuth `youtube.readonly` Bearer token. Flow: subscriptions → uploads → video metadata.
-- **Local layer (EXISTS):** InnerTube search + watch history. No auth needed, always works. `fetchSearchBasedHomeFeed()` in `VideoRepositoryImpl`.
+- **Cookie-ML layer (NEW — top priority):** Real InnerTube browse using the user's YouTube **session cookies** (SAPISID/__Secure- variants + LOGIN_INFO). Sends `FEwhat_to_watch` browse with a correct `SAPISIDHASH` Authorization header + `Cookie` header + `X-Goog-Visitor-Data`. This is the ONLY way InnerTube returns a genuinely personalized feed (the WEB client ignores the OAuth Bearer token). Returns the real "recommended for you" + subscriptions shelf.
+- **Local layer (EXISTS):** InnerTube search + watch history, no auth. Always works. `fetchSearchBasedHomeFeed()` in `VideoRepositoryImpl`. This is the fallback base.
 - **Blend + Room cache:** merged and cached, surfaced through `getHomeFeed()`.
 
 ## Key Technical Constraint
 
-InnerTube's WEB client personalizes via SAPISID login **cookies**, NOT the OAuth Bearer token. That's why `FEwhat_to_watch` (and `FEsubscriptions`) return empty/non-personalized results in the current app. The official Data API v3 DOES use the OAuth token correctly, so the personalized subscriptions data must come from Data API v3, not InnerTube.
+InnerTube personalizes via **SAPISID login cookies**, NOT the OAuth Bearer token. That's why the current app's `FEwhat_to_watch` returns empty — it sends the OAuth Bearer but no session cookies. To get the real feed we must send the user's YouTube session cookies.
 
-The Data API v3 algorithmic home feed (`activities.list?home=true`) was **deprecated in 2016**. Available official personalized data: `subscriptions.list`, `playlistItems.list` (channel uploads), `videos.list` (details/liked), `playlists`.
+**Tradeoffs of the cookie approach (honest):**
+- **Fragility:** YouTube increasingly requires a `PoToken` + BotGuard (WebViewService) proof on browse calls. Cookie-only requests may hit `HTTP 400/429` or empty shelves until PoToken is solved. Mitigation: robust fallback to local layer so the app never breaks.
+- **Security:** Cookies = a full Google session (wider blast radius than a scoped OAuth token). Mitigation (see below): store encrypted in `DataStore` (not plaintext `SharedPreferences`), clearly label the "Connect account" affordance, allow disconnect/revoke anytime, never log cookie values.
 
-## Section 2 — Official Subscriptions Feed (new code)
+## Section 2 — Cookie-ML Feed (new code)
 
-Quota-optimized Data API v3 flow:
-1. `subscriptions.list?part=snippet&mine=true&maxResults=50` (paginated via pageToken) → subscribed channel IDs + titles + thumbnails. Cache in Room `subscriptions` table.
-2. **Skip `channels.list`** — derive each channel's uploads playlist deterministically by rewriting ID prefix `UC…` → `UU…`. Saves 1 quota batch.
-3. `playlistItems.list?part=snippet&playlistId=UU…&maxResults=5` per channel → recent uploads.
-4. `videos.list?part=snippet,statistics,contentDetails&id=<up to 50 comma-separated>` batched → view counts + durations for enrichment.
+**Cookie acquisition (closed-circle friendly, explicit + safe):**
+- Settings → "Connect YouTube account" opens a cookie-paste dialog (user copies the `Cookie:` header / cookie string from their signed-in browser, e.g. via a devtools copy). No brittle WebView scraping.
+- Store encrypted in `DataStore` (`data/store/CookieStore.kt`), NOT plaintext.
+- `disconnect()` clears cookies immediately.
 
-**Quota reality:** Data API v3 = **10,000 units/day per project, shared across ALL users**. Step 3 costs ~1 unit per subscribed channel per refresh. Personal/sideloaded use (1 user, 30–100 subs) is trivial. Large public base = bottleneck → mitigated by Room caching (refresh every few hours or on pull-to-refresh). **No API key needed** — OAuth Bearer authenticates Data API calls directly.
+**Request flow (`CookieFeedRepository`):**
+1. If cookies present → build InnerTube browse request for `browseId=FEwhat_to_watch` with headers: `Authorization: SAPISIDHASH <time>_<hash>`, `Cookie: <stored>`, `X-Goog-Visitor-Data`, existing User-Agent.
+2. Parse personalized shelf (`parseBrowseResponse` extended/patched to extract `twoColumnBrowseResults` sections).
+3. On empty / 400 / 429 / auth error → fall through to local layer.
+4. Cache personalized results in a Room feed-cache table; refresh on pull-to-refresh or every few hours.
 
-## Section 3 — Blending & Home Feed
+**Feed-source priority in `getHomeFeed()`:**
+1. Cookie-ML personalized shelf (if cookies valid + non-empty) — blended with local recs so it reads as one feed.
+2. Local search-based + watch-history feed (always works).
+3. Trending fallback.
 
-`VideoRepositoryImpl.getHomeFeed()` new tiered chain:
-1. **Authenticated + has subscriptions:** official subscriptions uploads (recent, date-sorted) as backbone, **interleaved item-by-item** with local watch-history/search recommendations. **Blend ratio: 40% subscriptions / 60% local (Discovery-heavy).** Mixed so it reads as one feed, not two blocks.
-2. **Authenticated but official layer empty/fails (403/quota):** fall back to local search-based feed.
-3. **Unauthenticated:** existing search-based + trending.
+## Section 3 — Blending & Home Feed UI
 
-Cached to Room; pull-to-refresh forces re-fetch.
+- Home feed = **magazine grid**: 1 featured wide card (top) + 2-column grid of cards below. **Detail row below each thumbnail is compact** (title 1 line + channel name, smaller font, tighter spacing) per user request.
+- Premium controls surfaced per-card as lightweight inline icons (download / save / PiP / EQ / queue) — mirror existing `VideoCard` `onSaveToWatchLater` + new handlers.
+- Player premium controls (Download/EQ) are **collapsible panels**: Download open by default, **EQ hidden by default**, expandable (matches sample8 pattern).
+- Pull-to-refresh (already implemented) forces re-fetch of the cookie-ML layer + local layer.
 
-**Interleave algorithm:** for every 5 feed slots, ~2 come from subscriptions, ~3 from local recs; dedupe by videoId; preserve recency ordering within each source.
+## Section 4 — Theming (in-app selector)
 
-## Section 4 — Auth Changes (all-account + verification-ready)
+All accent themes selectable at runtime (default **Hot Pink #FF4081**):
+- Hot Pink `#FF4081` (default), Digital Waves `#4FC3F7`, Eco Frequency `#69F0AE`, Neon Purple `#B388FF`, Amber Horizon `#FFB74D`, Crimson `#FF5252`.
 
-- Keep minimal `youtube.readonly` scope (already minimal — good for verification).
-- **Graceful OAuth handling:** in Testing mode, non-test accounts are blocked by Google; catch that failure and API 403 "app not verified", then fall back to local feed + show a subtle one-line banner: "Personalized subscriptions activate after app verification — showing recommendations from your activity."
-- **In-app Privacy Policy link** in Settings (opens hosted URL).
-- Room migration **v4 → v5** (`MIGRATION_4_5`) for a feed-cache table.
+Implementation: `ThemeManager` (DataStore-backed) + `Theme.kt` definitions exposing an `accent` color used by `MaterialTheme.colorScheme.primary`/related pink surfaces. Settings screen gets a theme selector (swatch row / list). Selection applies instantly app-wide.
 
-## Section 5 — Deliverables (verification package)
+## Section 5 — Auth Changes (closed-circle, robust sign-in)
 
-Files generated in repo under `docs/verification/`:
-- `CHECKLIST.md` — step-by-step Google Cloud Console actions.
-- `PRIVACY_POLICY.md` — ready-to-host privacy policy template.
-- `DEMO_VIDEO_SCRIPT.md` — screen-by-screen recording script + written scope justification.
+- Keep minimal `youtube.readonly` OAuth scope for **identity** (profile/email) + test-user distribution. The personalized *feed* comes from cookies (Section 2), not OAuth.
+- **OAuth stays in "Testing" mode.** Each member's Gmail added as an OAuth **test user** (up to 100) → full sign-in, no verification needed.
+- **7-day refresh-token expiry:** on refresh failure → `googleSignInClient.silentSignIn()`; if that fails, gentle non-blocking re-sign-in prompt while local feed keeps working. Never wipe session.
+- Cookie session expiry handled separately: if cookie-ML requests fail repeatedly, drop to local feed + subtle banner "Showing recommendations from your activity — reconnect account for your feed."
 
-## Cost & Timeline (verification)
+## Section 6 — Deliverables (closed-circle setup guide)
 
-- **$0 to Google.** `youtube.readonly` is a SENSITIVE scope (not restricted) → no fee, no paid CASA security assessment.
-- Timeline: brand verification ~2–3 business days + sensitive scope verification ~10 business days.
+`docs/CLOSED_CIRCLE_SETUP.md` covering: (1) enable YouTube Data API v3 in Cloud project (for OAuth identity), (2) add each member's Gmail as OAuth test user, (3) **how members connect their YouTube account (paste cookies) for the personalized feed**, security note on cookie storage, (4) build + distribute APK privately, (5) 7-day re-sign-in + cookie expiry behavior.
 
-## Policy Risk (acknowledged)
+## Cost & Timeline
 
-App's core purpose = ad-free YouTube playback via InnerTube scraping. Google's YouTube API Services ToS prohibit interfering with ads / replicating YouTube. A human reviewer may REJECT verification on policy grounds regardless of technical readiness. The Hybrid design ensures the app is fully functional for all accounts WITHOUT verification; the official subscriptions feed is upside, not a dependency.
+- **$0, no OAuth verification.** Testing-mode test users need no fee, no CASA, no submission.
+- Setup is minutes: enable API, add test-user emails, share APK.
+
+## Policy Risk (lowered for this use case)
+
+App stays in Testing mode for a private group → no human policy review of the OAuth project. The cookie-based feed is gray-area (like the existing InnerTube scraping) but adds no new policy class. Cookie storage is encrypted + user-explicit + revocable to limit blast radius.
 
 ## New / Changed Components
 
 **New files:**
-- `data/api/YouTubeDataApiService.kt` — Retrofit interface for Data API v3 (subscriptions, playlistItems, videos).
-- `data/api/dto/DataApiDtos.kt` — DTOs for Data API v3 responses.
-- `data/repository/SubscriptionFeedRepository.kt` (or method set) — orchestrates subscriptions → uploads → videos with Room caching.
+- `data/store/CookieStore.kt` — encrypted DataStore for YouTube session cookies.
+- `data/repository/CookieFeedRepository.kt` — personalized browse (FEwhat_to_watch) with cookie headers + fallback.
+- `theme/ThemeManager.kt` — DataStore-backed accent theme selection.
+- `theme/Theme.kt` — accent theme definitions (6 themes).
+- `presentation/ui/components/MagazineFeed.kt` — magazine-grid composable (featured + 2-col + compact detail).
+- `presentation/ui/components/CollapsiblePanel.kt` — reusable expand/collapse panel for player Download/EQ.
+- `docs/CLOSED_CIRCLE_SETUP.md` — setup guide.
 
 **Changed files:**
-- `di/NetworkModule.kt` — add second Retrofit instance (baseUrl `https://www.googleapis.com/youtube/v3/`) + provide `YouTubeDataApiService`; reuse youtube OkHttpClient (already attaches Bearer).
-- `data/repository/VideoRepositoryImpl.kt` — new tiered `getHomeFeed()` with 40/60 blend + interleave.
-- `di/DatabaseModule.kt` + Room entities/DAO — `MIGRATION_4_5`, DB version 4→5, feed-cache table.
-- `presentation/ui/screen/SettingsScreen.kt` — Privacy Policy link.
-- `presentation/ui/screen/HomeScreen.kt` — degradation banner.
+- `di/NetworkModule.kt` — attach cookie headers on InnerTube browse when available; provide `CookieFeedRepository`.
+- `data/repository/VideoRepositoryImpl.kt` — `getHomeFeed()` priority: cookie-ML → local → trending; magazine-grid data shape unchanged.
+- `presentation/ui/screen/HomeScreen.kt` — use `MagazineFeed`; degradation banner.
+- `presentation/ui/screen/PlayerScreen.kt` — wrap Download/EQ in collapsible panels (EQ hidden default).
+- `presentation/ui/screen/SettingsScreen.kt` — theme selector + "Connect YouTube account" cookie dialog + disconnect.
+- `auth/AuthManager.kt` — robust 7-day-expiry handling (unchanged from prior design).
+- `di/DatabaseModule.kt` / entities / DAO — feed-cache table if needed (Room v4→v5 `MIGRATION_4_5`).
 
 ## Testing
 
-- Unit tests for interleave/blend logic (deterministic given two input lists).
-- Unit tests for `UC…`→`UU…` uploads-playlist derivation.
-- Data API DTO parsing tests.
-- Emulator: verify authenticated feed blends, unauthenticated falls back, 403 degrades gracefully.
+- Unit: `parseBrowseResponse` extraction from a saved personalized `FEwhat_to_watch` response.
+- Unit: blend/interleave determinism; cookie-store encrypt/decrypt round-trip.
+- Unit: theme definition mapping (accent → color scheme).
+- Emulator: with cookies → personalized feed; without → local fallback; PlayerScreen Download/EQ collapse behavior; theme switch applies app-wide.
 
 ## Out of Scope
 
-- Cookie-based InnerTube personalization (gray-area, rejected).
-- Real ML algorithmic "recommended for you" feed (requires cookie/gray-area path).
-- Actual submission of verification (user does this; app just becomes ready).
+- OAuth verification / Play Store publishing (not needed — closed-circle).
+- Fully automatic WebView cookie scraping (use explicit paste for robustness).
+- Solving PoToken/BotGuard end-to-end (deferred; fallback covers it).

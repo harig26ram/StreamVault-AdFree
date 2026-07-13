@@ -88,18 +88,19 @@ object NetworkModule {
 
             if (request.code == 401) {
                 request.close()
-                synchronized(refreshLock) {
-                    val newToken = runBlocking { authManager.refreshAccessToken() }
-                    if (newToken != null) {
-                        val newRequest = chain.request().newBuilder()
-                            .header("Authorization", "Bearer $newToken")
-                            .build()
-                        return@addInterceptor chain.proceed(newRequest)
-                    }
+                val newToken = synchronized(refreshLock) {
+                    runBlocking { authManager.refreshAccessToken() }
                 }
+                if (newToken != null) {
+                    val newRequest = chain.request().newBuilder()
+                        .header("Authorization", "Bearer $newToken")
+                        .build()
+                    return@addInterceptor chain.proceed(newRequest)
+                }
+                chain.proceed(chain.request())
+            } else {
+                request
             }
-
-            request
         }
 
         return clientBuilder

@@ -92,11 +92,22 @@ class VideoRepositoryImpl @Inject constructor(
 
             Log.d(TAG, "HTML scrape empty, using search API as home feed source with watch history")
             val (searchItems, searchContinuation) = fetchSearchBasedHomeFeed()
-            if (searchItems.isEmpty()) {
-                Result.failure(Exception("No content available. Please check your connection and try again."))
-            } else {
-                Result.success(HomeFeed(items = searchItems, continuationToken = searchContinuation))
+            if (searchItems.isNotEmpty()) {
+                return Result.success(HomeFeed(items = searchItems, continuationToken = searchContinuation))
             }
+
+            Log.d(TAG, "Search feed empty, falling back to trending")
+            val trendingResult = getTrending()
+            if (trendingResult.isSuccess) {
+                val trending = trendingResult.getOrNull()
+                if (trending != null && trending.items.isNotEmpty()) {
+                    Log.d(TAG, "Trending fallback returned ${trending.items.size} items")
+                    return Result.success(trending)
+                }
+            }
+
+            Log.w(TAG, "All feed sources exhausted (browse, HTML, search, trending)")
+            Result.failure(Exception("No content available. Please check your connection and try again."))
         } catch (e: Exception) {
             Log.w(TAG, "Home feed exception: ${e.message}")
             Result.failure(e)

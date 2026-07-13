@@ -5,6 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +27,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.streamvault.app.BuildConfig
 import com.streamvault.app.R
 import com.streamvault.app.presentation.ui.components.MTricolorDivider
+import com.streamvault.app.presentation.ui.theme.AppThemes
+import com.streamvault.app.presentation.ui.theme.Theme
 import com.streamvault.app.presentation.viewmodel.SettingsViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -35,6 +39,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val currentTheme by viewModel.selectedTheme.collectAsState()
 
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -160,6 +165,10 @@ fun SettingsScreen(
                     subtitle = uiState.defaultTab.replaceFirstChar { it.uppercase() },
                     icon = Icons.Default.Tab,
                     onClick = { viewModel.showDefaultTabDialog() }
+                )
+                ThemeSelector(
+                    current = currentTheme,
+                    onSelect = viewModel::selectTheme
                 )
             }
 
@@ -457,6 +466,51 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun ThemeSelector(
+    current: Theme,
+    onSelect: (Theme) -> Unit
+) {
+    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Accent Color",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            AppThemes.forEach { theme ->
+                val selected = theme.id == current.id
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(theme.accent)
+                        .border(
+                            width = 3.dp,
+                            color = if (selected) MaterialTheme.colorScheme.onSurface else androidx.compose.ui.graphics.Color.Transparent,
+                            shape = CircleShape
+                        )
+                        .clickable { onSelect(theme) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (selected) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = androidx.compose.ui.graphics.Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

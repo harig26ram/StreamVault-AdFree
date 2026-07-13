@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FreedomPlay — Sample 2: Shelf Layout</title>
+<style>
+  :root{ --bg:#000; --surface:#121212; --pink:#FF4081; --txt:#fff; --mut:#9a9a9a; }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,Roboto,Segoe UI,sans-serif;}
+  body{background:var(--bg);color:var(--txt);max-width:420px;margin:0 auto;padding-bottom:80px;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:linear-gradient(180deg,#16000c,#000);position:sticky;top:0;z-index:5;}
+  .topbar h1{font-size:20px;font-weight:800;background:linear-gradient(90deg,#fff,var(--pink));-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .seg{display:flex;gap:8px;padding:10px 14px;overflow-x:auto;}
+  .seg button{white-space:nowrap;font-size:12px;padding:6px 14px;border-radius:16px;background:var(--surface);color:var(--mut);border:1px solid #2a2a2a;}
+  .seg button.on{background:var(--pink);color:#fff;border-color:var(--pink);}
+  .shelf{margin:6px 0 12px;}
+  .shelf h2{font-size:15px;font-weight:700;padding:8px 14px;display:flex;align-items:center;gap:6px;}
+  .shelf h2 .pill{font-size:10px;background:#2a0016;color:var(--pink);border:1px solid #4a0a2a;padding:2px 7px;border-radius:10px;}
+  .rail{display:flex;gap:10px;overflow-x:auto;padding:0 14px;}
+  .card{flex:0 0 200px;}
+  .card .thumb{width:200px;height:112px;border-radius:10px;background:linear-gradient(135deg,#241a2e,#0e0e16);position:relative;}
+  .card .thumb .dur{position:absolute;right:5px;bottom:5px;background:#000a;font-size:10px;padding:1px 4px;border-radius:3px;}
+  .card .ct{font-size:13px;font-weight:600;margin-top:5px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .card .cs{font-size:11px;color:var(--mut);margin-top:2px;}
+  .list{padding:0 14px;}
+  .li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #161616;}
+  .li .thumb{width:140px;height:80px;border-radius:8px;background:linear-gradient(135deg,#241a2e,#0e0e16);flex:0 0 auto;position:relative;}
+  .li .thumb .dur{position:absolute;right:4px;bottom:4px;background:#000a;font-size:10px;padding:1px 4px;border-radius:3px;}
+  .li .mt .t{font-size:13px;font-weight:600;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .li .mt .s{font-size:11px;color:var(--mut);margin-top:3px;}
+  .nav{position:fixed;bottom:0;left:0;right:0;max-width:420px;margin:0 auto;display:flex;background:#0a0a0a;border-top:1px solid #1d1d1d;}
+  .nav a{flex:1;text-align:center;padding:10px 0;font-size:10px;color:var(--mut);text-decoration:none;}
+  .nav a.on{color:var(--pink);}
+</style>
+</head>
+<body>
+  <div class="topbar"><h1>FreedomPlay</h1><div style="font-size:22px">⚙️</div></div>
+  <div class="seg">
+    <button class="on">For You</button><button>Subscriptions</button><button>Music</button><button>Tech</button><button>Downloads</button>
+  </div>
+
+  <div class="shelf">
+    <h2>🔥 Continue watching <span class="pill">resume</span></h2>
+    <div class="rail">
+      <div class="card"><div class="thumb"><span class="dur">12:40 left</span></div><div class="ct">Compose multi-module Android apps</div><div class="cs">54% · 2 days ago</div></div>
+      <div class="card"><div class="thumb"><span class="dur">3:10 left</span></div><div class="ct">Kotlin coroutines deep dive</div><div class="cs">81% · yesterday</div></div>
+    </div>
+  </div>
+
+  <div class="shelf">
+    <h2>⤴ Watch Later <span class="pill">8 saved</span></h2>
+    <div class="rail">
+      <div class="card"><div class="thumb"></div><div class="ct">Jetpack Compose animation guide</div><div class="cs">Saved</div></div>
+      <div class="card"><div class="thumb"></div><div class="ct">Room DB migration patterns</div><div class="cs">Saved</div></div>
+      <div class="card"><div class="thumb"></div><div class="ct">Building an equalizer in Kotlin</div><div class="cs">Saved</div></div>
+    </div>
+  </div>
+
+  <div class="shelf">
+    <h2>⬇ Downloads <span class="pill">offline</span></h2>
+    <div class="rail">
+      <div class="card"><div class="thumb"><span class="dur">✓ 1080p</span></div><div class="ct">Offline playlist — flights</div><div class="cs">142 MB</div></div>
+      <div class="card"><div class="thumb"><span class="dur">⌛ 64%</span></div><div class="ct">Podcast episode #42</div><div class="cs">downloading…</div></div>
+    </div>
+  </div>
+
+  <div class="shelf"><h2>📺 From your subscriptions</h2></div>
+  <div class="list">
+    <div class="li"><div class="thumb"></div><div class="mt"><div class="t">New video from a channel you follow</div><div class="s">Channel · 320K views · 4h ago</div></div></div>
+    <div class="li"><div class="thumb"></div><div class="mt"><div class="t">Another subscribed upload with chapters</div><div class="s">Channel · 12K views · 9h ago</div></div></div>
+    <div class="li"><div class="thumb"></div><div class="mt"><div class="t">Weekly dev log — episode 18</div><div class="s">Channel · 5.4K views · 1d ago</div></div></div>
+  </div>
+
+  <div class="nav">
+    <a class="on" href="#">🏠 For You</a><a href="#">📺 Sub</a><a href="#">📚 Lib</a><a href="#">⚙️</a>
+  </div>
+</body>
+</html>

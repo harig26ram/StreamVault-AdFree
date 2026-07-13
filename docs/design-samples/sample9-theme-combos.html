@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FreedomPlay — Sample 9: Theme Combos</title>
+<style>
+  :root{ --bg:#000; --surface:#121212; --accent:#FF4081; --stage:linear-gradient(135deg,#241a2e,#0e0e16); --txt:#fff; --mut:#9a9a9a; }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,Roboto,Segoe UI,sans-serif;}
+  body{background:var(--bg);color:var(--txt);max-width:420px;margin:0 auto;padding-bottom:24px;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;background:linear-gradient(180deg,#16000c,#000);position:sticky;top:0;z-index:5;}
+  .topbar h1{font-size:18px;font-weight:800;background:linear-gradient(90deg,#fff,var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .hint{font-size:11px;color:var(--mut);padding:6px 16px 12px;}
+  .preview{margin:0 14px;border-radius:14px;overflow:hidden;border:1px solid #242424;}
+  .preview .stage{width:100%;aspect-ratio:16/9;background:var(--stage);position:relative;}
+  .preview .stage .ctrl{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:60px;height:60px;border-radius:50%;background:#0009;display:flex;align-items:center;justify-content:center;font-size:28px;color:#fff;}
+  .preview .stage .rt{position:absolute;top:42px;right:10px;display:flex;flex-direction:column;gap:8px;}
+  .preview .stage .rt div{width:32px;height:32px;border-radius:50%;background:#0009;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;}
+  .preview .stage .rt div.pk{color:var(--accent);}
+  .preview .seg{display:inline-block;margin:10px 12px;background:var(--surface);border-radius:18px;overflow:hidden;border:1px solid #262626;}
+  .preview .seg button{background:none;border:none;color:var(--mut);font-size:12px;padding:6px 13px;}
+  .preview .seg button.on{background:var(--accent);color:#fff;}
+  .preview .acts{display:flex;justify-content:space-around;padding:10px 4px;border-top:1px solid #1d1d1d;}
+  .preview .acts div{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--mut);}
+  .preview .acts div.pk{color:var(--accent);}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:16px 14px;}
+  .sw{background:var(--surface);border-radius:12px;padding:10px;cursor:pointer;border:2px solid transparent;}
+  .sw.sel{border-color:var(--accent);}
+  .sw .mini{width:100%;aspect-ratio:16/9;border-radius:8px;margin-bottom:8px;position:relative;}
+  .sw .nm{font-size:13px;font-weight:700;}
+  .sw .ds{font-size:10px;color:var(--mut);}
+  .sw .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle;}
+</style>
+</head>
+<body>
+  <div class="topbar"><h1>FreedomPlay</h1><div style="font-size:20px">🎨</div></div>
+  <div class="hint">Tap a theme below to preview the player in that color combo. All use the same AMOLED base; only the accent changes.</div>
+
+  <div class="preview" id="preview">
+    <div class="stage">
+      <div class="ctrl">▶</div>
+      <div class="rt"><div>CC</div><div class="pk">4K</div><div>1x</div><div>⤡</div><div class="pk">🎚</div></div>
+    </div>
+    <div class="seg"><button class="on">Video</button><button>⏯ Audio</button><button>🎚 EQ</button></div>
+    <div class="acts">
+      <div>👍 Like</div><div>⤴ Save</div><div class="pk">⬇ DL</div><div>⤡ PiP</div><div>♫ Queue</div><div>↗ Share</div>
+    </div>
+  </div>
+
+  <div class="grid" id="grid">
+    <div class="sw sel" data-accent="#FF4081" data-stage="linear-gradient(135deg,#241a2e,#0e0e16)" data-name="Hot Pink" data-desc="Default · matches current app"><div class="mini" style="background:linear-gradient(135deg,#241a2e,#0e0e16)"></div><div class="nm"><span class="dot" style="background:#FF4081"></span>Hot Pink</div><div class="ds">Default · current app</div></div>
+    <div class="sw" data-accent="#4FC3F7" data-stage="linear-gradient(135deg,#0e2230,#0a0e16)" data-name="Digital Waves" data-desc="Cool cyan/blue"><div class="mini" style="background:linear-gradient(135deg,#0e2230,#0a0e16)"></div><div class="nm"><span class="dot" style="background:#4FC3F7"></span>Digital Waves</div><div class="ds">Cool cyan (FastBeat-inspired)</div></div>
+    <div class="sw" data-accent="#69F0AE" data-stage="linear-gradient(135deg,#0e2a1c,#0a0e16)" data-name="Eco Frequency" data-desc="Green nature"><div class="mini" style="background:linear-gradient(135deg,#0e2a1c,#0a0e16)"></div><div class="nm"><span class="dot" style="background:#69F0AE"></span>Eco Frequency</div><div class="ds">Green (FastBeat-inspired)</div></div>
+    <div class="sw" data-accent="#B388FF" data-stage="linear-gradient(135deg,#1e1430,#0a0e16)" data-name="Neon Purple" data-desc="Vivid violet"><div class="mini" style="background:linear-gradient(135deg,#1e1430,#0a0e16)"></div><div class="nm"><span class="dot" style="background:#B388FF"></span>Neon Purple</div><div class="ds">Vivid violet</div></div>
+    <div class="sw" data-accent="#FFB74D" data-stage="linear-gradient(135deg,#301e0e,#100a0a)" data-name="Amber Horizon" data-desc="Warm orange"><div class="mini" style="background:linear-gradient(135deg,#301e0e,#100a0a)"></div><div class="nm"><span class="dot" style="background:#FFB74D"></span>Amber Horizon</div><div class="ds">Warm orange (FastBeat-inspired)</div></div>
+    <div class="sw" data-accent="#FF5252" data-stage="linear-gradient(135deg,#300e12,#100a0a)" data-name="Crimson" data-desc="Red alert"><div class="mini" style="background:linear-gradient(135deg,#300e12,#100a0a)"></div><div class="nm"><span class="dot" style="background:#FF5252"></span>Crimson</div><div class="ds">Red accent</div></div>
+  </div>
+
+<script>
+  const grid=document.getElementById('grid');
+  const preview=document.getElementById('preview');
+  const root=document.documentElement;
+  grid.addEventListener('click',e=>{
+    const sw=e.target.closest('.sw'); if(!sw)return;
+    document.querySelectorAll('.sw').forEach(x=>x.classList.remove('sel'));
+    sw.classList.add('sel');
+    root.style.setProperty('--accent',sw.dataset.accent);
+    root.style.setProperty('--stage',sw.dataset.stage);
+  });
+</script>
+</body>
+</html>
