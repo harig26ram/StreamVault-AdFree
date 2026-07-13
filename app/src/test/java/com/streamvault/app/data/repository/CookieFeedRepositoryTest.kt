@@ -17,8 +17,8 @@ class CookieFeedRepositoryTest {
         // Note: timestamp changes per call, so we test format not exact value
         val result1 = CookieFeedRepositoryImpl.computeSapiSidHash("abc123")
         val result2 = CookieFeedRepositoryImpl.computeSapiSidHash("abc123")
-        // Format: SAPISIDHASH {timestamp}_{40-char-hex}
-        val regex = Regex("^SAPISIDHASH \\d+_[0-9a-f]{40}$")
+        // Format: SAPISIDHASH {timestamp}:{40-char-hex}
+        val regex = Regex("^SAPISIDHASH \\d+:[0-9a-f]{40}$")
         assertTrue("Result 1 should match format: $result1", regex.matches(result1))
         assertTrue("Result 2 should match format: $result2", regex.matches(result2))
     }
@@ -28,7 +28,7 @@ class CookieFeedRepositoryTest {
         val result = CookieFeedRepositoryImpl.computeSapiSidHash("sapisid")
         assertTrue(result.startsWith("SAPISIDHASH "))
         // The hash portion should be 40 hex chars
-        val hashPart = result.substringAfter("_")
+        val hashPart = result.substringAfter(":")
         assertEquals(40, hashPart.length)
     }
 
@@ -36,7 +36,7 @@ class CookieFeedRepositoryTest {
     fun `computeSapiSidHash with custom origin`() {
         val result = CookieFeedRepositoryImpl.computeSapiSidHash("sapisid", "https://example.com")
         assertTrue(result.startsWith("SAPISIDHASH "))
-        val regex = Regex("^SAPISIDHASH \\d+_[0-9a-f]{40}$")
+        val regex = Regex("^SAPISIDHASH \\d+:[0-9a-f]{40}$")
         assertTrue("Should match format with custom origin: $result", regex.matches(result))
     }
 

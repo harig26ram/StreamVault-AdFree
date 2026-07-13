@@ -14,6 +14,7 @@ import com.streamvault.app.data.api.PlayerRequest
 import com.streamvault.app.data.api.SearchRequest
 import com.streamvault.app.data.api.YouTubeApiService
 import com.streamvault.app.data.api.VideoDetails
+import com.streamvault.app.auth.CookieStore
 import com.streamvault.app.data.bootstrap.VisitorDataBootstrapper
 import com.streamvault.app.data.local.VideoDao
 import com.streamvault.player.youtube.CipherDecryptor
@@ -52,7 +53,9 @@ class VideoRepositoryImpl @Inject constructor(
     private val videoDao: VideoDao,
     @javax.inject.Named("general") private val httpClient: okhttp3.OkHttpClient,
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
-    private val visitorDataBootstrapper: VisitorDataBootstrapper
+    private val visitorDataBootstrapper: VisitorDataBootstrapper,
+    private val cookieFeedRepository: CookieFeedRepository,
+    private val cookieStore: CookieStore
 ) : VideoRepository {
 
     private val streamUrlExtractor = StreamUrlExtractor(
@@ -70,12 +73,29 @@ class VideoRepositoryImpl @Inject constructor(
         private const val TAG = "VideoRepository"
     }
 
+    private var lastGoodFeed: List<FeedItem>? = null
+
     override suspend fun getHomeFeed(continuationToken: String?): Result<HomeFeed> {
         if (continuationToken != null) {
             return loadHomeFeedContinuation(continuationToken)
         }
         return try {
             Log.d(TAG, "Home feed request")
+
+            // Tier 0: Cookie-ML personalized feed (highest quality when connected)
+            if (cookieStore.isConnected.value) {
+                try {
+                    val personalizedItems = cookieFeedRepository.getPersonalizedHomeFeed()
+                    if (personalizedItems.isNotEmpty()) {
+                        Log.d(TAG, "Cookie-ML feed returned ${personalizedItems.size} items")
+                        val feedItems = personalizedItems.map { FeedItem.Video(it) }
+                        lastGoodFeed = feedItems
+                        return Result.success(HomeFeed(items = feedItems, continuationToken = null))
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cookie-ML feed failed: ${e.message}, continuing to fallback")
+                }
+            }
 
             Log.d(TAG, "Trying FEwhat_to_watch InnerTube browse")
             val browseResult = fetchBrowseFeed("FEwhat_to_watch")
@@ -104,6 +124,13 @@ class VideoRepositoryImpl @Inject constructor(
                     Log.d(TAG, "Trending fallback returned ${trending.items.size} items")
                     return Result.success(trending)
                 }
+            }
+
+            // Final fallback: return cached feed if available
+            val cached = lastGoodFeed
+            if (!cached.isNullOrEmpty()) {
+                Log.d(TAG, "Returning cached feed (${cached.size} items)")
+                return Result.success(HomeFeed(items = cached, continuationToken = null))
             }
 
             Log.w(TAG, "All feed sources exhausted (browse, HTML, search, trending)")

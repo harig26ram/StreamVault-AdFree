@@ -30,11 +30,11 @@ class CookieFeedRepositoryImpl @Inject constructor(
 
         fun computeSapiSidHash(sapisid: String, origin: String = "https://www.youtube.com"): String {
             val timestamp = System.currentTimeMillis() / 1000
-            val input = "$timestamp ${sapisid} $origin"
+            val input = "$timestamp.$sapisid.$origin"
             val digest = MessageDigest.getInstance("SHA-1")
             val hashBytes = digest.digest(input.toByteArray(Charsets.UTF_8))
             val hashHex = hashBytes.joinToString("") { "%02x".format(it) }
-            return "SAPISIDHASH ${timestamp}_$hashHex"
+            return "SAPISIDHASH $timestamp:$hashHex"
         }
 
         fun extractSapiSid(cookies: String): String? {

@@ -3,6 +3,7 @@ package com.streamvault.app.di
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.streamvault.app.auth.AuthManager
+import com.streamvault.app.auth.CookieStore
 import com.streamvault.app.data.api.YouTubeApiService
 import com.streamvault.app.data.bootstrap.VisitorDataBootstrapper
 import dagger.Module
@@ -32,12 +33,22 @@ object NetworkModule {
 
     private val refreshLock = Any()
 
+    fun computeSapiSidHash(sapisid: String, origin: String = "https://www.youtube.com"): String {
+        val timestamp = System.currentTimeMillis() / 1000
+        val input = "$timestamp.$sapisid.$origin"
+        val digest = java.security.MessageDigest.getInstance("SHA-1")
+        val hashBytes = digest.digest(input.toByteArray(Charsets.UTF_8))
+        val hashHex = hashBytes.joinToString("") { "%02x".format(it) }
+        return "SAPISIDHASH $timestamp:$hashHex"
+    }
+
     @Provides
     @Singleton
     @Named("youtube")
     fun provideYouTubeOkHttpClient(
         authManager: AuthManager,
-        bootstrapper: VisitorDataBootstrapper
+        bootstrapper: VisitorDataBootstrapper,
+        cookieStore: CookieStore
     ): OkHttpClient {
         val clientBuilder = OkHttpClient.Builder()
 
@@ -69,9 +80,22 @@ object NetworkModule {
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .header("Content-Type", "application/json")
 
-            val accessToken = authManager.getAccessToken()
-            if (!accessToken.isNullOrEmpty()) {
-                builder.header("Authorization", "Bearer $accessToken")
+            var useCookieAuth = false
+            if (cookieStore.isConnected.value && url.encodedPath.startsWith("/youtubei/v1/browse")) {
+                val cookies = cookieStore.getCookies()
+                val sapisid = cookieStore.getSapisid()
+                if (!cookies.isNullOrEmpty() && !sapisid.isNullOrEmpty()) {
+                    val sapisidhash = computeSapiSidHash(sapisid)
+                    builder.header("Cookie", cookies)
+                        .header("Authorization", sapisidhash)
+                    useCookieAuth = true
+                }
+            }
+            if (!useCookieAuth) {
+                val accessToken = authManager.getAccessToken()
+                if (!accessToken.isNullOrEmpty()) {
+                    builder.header("Authorization", "Bearer $accessToken")
+                }
             }
 
             // Get visitorData from bootstrapper (cached or fresh)

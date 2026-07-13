@@ -1,5 +1,7 @@
 package com.streamvault.app.di
 
+import com.streamvault.app.data.repository.CookieFeedRepository
+import com.streamvault.app.data.repository.CookieFeedRepositoryImpl
 import com.streamvault.app.data.repository.VideoRepositoryImpl
 import com.streamvault.app.domain.repository.VideoRepository
 import dagger.Binds
@@ -15,4 +17,8 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindVideoRepository(impl: VideoRepositoryImpl): VideoRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindCookieFeedRepository(impl: CookieFeedRepositoryImpl): CookieFeedRepository
 }
