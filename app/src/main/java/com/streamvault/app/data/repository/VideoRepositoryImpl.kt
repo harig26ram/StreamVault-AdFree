@@ -1732,6 +1732,15 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     contextBuilder = { ci -> ClientContext(client = ci, thirdParty = ThirdPartyContext(embedUrl = "https://www.reddit.com/")) }
                 ),
                 ClientSpec(
+                    name = "WEB_SAFARI",
+                    clientInfo = ClientInfo(
+                        clientName = "WEB_SAFARI",
+                        clientVersion = "2.20260708.00.00",
+                        userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+                        platform = "DESKTOP"
+                    )
+                ),
+                ClientSpec(
                     name = "ANDROID",
                     clientInfo = ClientInfo(
                         clientName = "ANDROID",
