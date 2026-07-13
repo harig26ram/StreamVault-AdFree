@@ -1,6 +1,7 @@
 package com.streamvault.app.presentation.ui.screen
 
 import android.app.Activity
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -18,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,6 +28,7 @@ import coil.compose.AsyncImage
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.streamvault.app.BuildConfig
 import com.streamvault.app.R
+import com.streamvault.app.util.DebugLogExporter
 import com.streamvault.app.presentation.ui.components.MTricolorDivider
 import com.streamvault.app.presentation.ui.theme.AppThemes
 import com.streamvault.app.presentation.ui.theme.Theme
@@ -295,6 +298,29 @@ fun SettingsScreen(
                     subtitle = "Remove all watch history",
                     icon = Icons.Default.DeleteForever,
                     onClick = { viewModel.showClearHistoryDialog() }
+                )
+            }
+
+            SettingsSection(title = "Debug") {
+                val context = LocalContext.current
+                SettingsItem(
+                    title = "Export debug log",
+                    subtitle = "Save app logs to share for troubleshooting",
+                    icon = Icons.Default.BugReport,
+                    onClick = {
+                        val uri = DebugLogExporter.export(context)
+                        if (uri != null) {
+                            try {
+                                context.startActivity(
+                                    Intent.createChooser(
+                                        DebugLogExporter.buildShareIntent(uri),
+                                        "Share debug log"
+                                    )
+                                )
+                            } catch (e: Exception) {
+                            }
+                        }
+                    }
                 )
             }
 
