@@ -1812,8 +1812,10 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                 }
             }
 
-            if (formats.isEmpty()) {
-                Log.d(TAG, "getVideoFormats: no direct URL formats from any client, trying cipher decryption...")
+            val maxHeight = formats.maxOfOrNull { it.height ?: 0 } ?: 0
+            Log.d(TAG, "getVideoFormats: best quality from clients: ${maxHeight}p (${formats.size} formats)")
+            if (maxHeight < 720) {
+                Log.d(TAG, "getVideoFormats: best quality ${maxHeight}p < 720p, trying cipher decryption for higher qualities...")
                 val watchPageData = fetchWatchPageFormats(videoId)
                 val watchPageJson = watchPageData.json
                 if (watchPageJson != null) {
