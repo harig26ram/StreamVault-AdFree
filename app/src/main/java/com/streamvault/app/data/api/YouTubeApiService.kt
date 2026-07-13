@@ -88,7 +88,12 @@ data class SubscriptionsRequest(
 data class ClientContext(
     val client: ClientInfo,
     val user: UserContext? = null,
-    val request: RequestContext? = null
+    val request: RequestContext? = null,
+    val thirdParty: ThirdPartyContext? = null
+)
+
+data class ThirdPartyContext(
+    val embedUrl: String? = null
 )
 
 data class ClientInfo(
@@ -101,7 +106,9 @@ data class ClientInfo(
     val platform: String? = null,
     val osName: String? = null,
     val osVersion: String? = null,
-    val visitorData: String? = null
+    val visitorData: String? = null,
+    val deviceMake: String? = null,
+    val deviceModel: String? = null
 )
 
 data class UserContext(

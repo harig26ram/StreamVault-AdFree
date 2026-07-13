@@ -81,7 +81,7 @@ object NetworkModule {
                 .header("Content-Type", "application/json")
 
             var useCookieAuth = false
-            if (cookieStore.isConnected.value && url.encodedPath.startsWith("/youtubei/v1/browse")) {
+            if (cookieStore.isConnected.value && (url.encodedPath.startsWith("/youtubei/v1/browse") || url.encodedPath.startsWith("/youtubei/v1/player"))) {
                 val cookies = cookieStore.getCookies()
                 val sapisid = cookieStore.getSapisid()
                 if (!cookies.isNullOrEmpty() && !sapisid.isNullOrEmpty()) {
@@ -129,7 +129,7 @@ object NetworkModule {
 
         return clientBuilder
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .followRedirects(true)
             .followSslRedirects(true)

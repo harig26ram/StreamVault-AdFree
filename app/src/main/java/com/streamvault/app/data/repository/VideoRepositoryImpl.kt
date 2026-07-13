@@ -9,6 +9,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import com.streamvault.app.data.api.BrowseRequest
 import com.streamvault.app.data.api.ClientContext
 import com.streamvault.app.data.api.ClientInfo
+import com.streamvault.app.data.api.ThirdPartyContext
 import com.streamvault.app.data.api.NextRequest
 import com.streamvault.app.data.api.PlayerRequest
 import com.streamvault.app.data.api.SearchRequest
@@ -1678,35 +1679,49 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     name = "ANDROID_VR",
                     clientInfo = ClientInfo(
                         clientName = "ANDROID_VR",
-                        clientVersion = "1.57.29",
-                        androidSdkVersion = 30,
+                        clientVersion = "1.65.10",
+                        androidSdkVersion = 32,
                         platform = "MOBILE",
-                        userAgent = "com.google.android.apps.youtube.vr.oculus/1.57.29 (Linux; U; Android 12; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                        userAgent = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
                         osName = "Android",
-                        osVersion = "12"
+                        osVersion = "12L",
+                        deviceMake = "Oculus",
+                        deviceModel = "Quest 3"
+                    )
+                ),
+                ClientSpec(
+                    name = "TVHTML5",
+                    clientInfo = ClientInfo(
+                        clientName = "TVHTML5",
+                        clientVersion = "7.20260707.07.00",
+                        platform = "TV",
+                        userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)"
+                    ),
+                    contextBuilder = { ci -> ClientContext(client = ci, thirdParty = ThirdPartyContext(embedUrl = "https://www.reddit.com/")) }
+                ),
+                ClientSpec(
+                    name = "IOS",
+                    clientInfo = ClientInfo(
+                        clientName = "IOS",
+                        clientVersion = "21.26.4",
+                        platform = "MOBILE",
+                        userAgent = "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+                        osName = "iPhone",
+                        osVersion = "18.3.2.22D82",
+                        deviceMake = "Apple",
+                        deviceModel = "iPhone16,2"
                     )
                 ),
                 ClientSpec(
                     name = "ANDROID",
                     clientInfo = ClientInfo(
                         clientName = "ANDROID",
-                        clientVersion = "20.10.38",
-                        androidSdkVersion = 36,
+                        clientVersion = "21.26.364",
+                        androidSdkVersion = 30,
                         platform = "MOBILE",
-                        userAgent = "com.google.android.youtube/20.10.38(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip",
+                        userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
                         osName = "Android",
-                        osVersion = "16"
-                    )
-                ),
-                ClientSpec(
-                    name = "IOS",
-                    clientInfo = ClientInfo(
-                        clientName = "IOS",
-                        clientVersion = "20.10.38",
-                        platform = "MOBILE",
-                        userAgent = "com.google.ios.youtube/20.10.38 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X; en_US)",
-                        osName = "iPhone",
-                        osVersion = "18.3.2"
+                        osVersion = "11"
                     )
                 )
             )
@@ -1727,6 +1742,19 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     playerResponse?.streamingData?.formats?.forEach { fmt ->
                         if (fmt.url != null && fmt.itag !in existingItags) {
                             existingItags.add(fmt.itag ?: 0)
+                            val h = fmt.height ?: 0
+                            val label = when {
+                                h >= 2160 -> "4K"
+                                h >= 1440 -> "1440p"
+                                h >= 1080 -> "1080p"
+                                h >= 720 -> "720p"
+                                h >= 480 -> "480p"
+                                h >= 360 -> "360p"
+                                h >= 240 -> "240p"
+                                h >= 144 -> "144p"
+                                h > 0 -> "${h}p"
+                                else -> fmt.quality ?: "unknown"
+                            }
                             formats.add(
                                 com.streamvault.app.domain.model.VideoFormat(
                                     itag = fmt.itag ?: 0,
@@ -1735,7 +1763,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                                     bitrate = fmt.bitrate ?: 0,
                                     width = fmt.width,
                                     height = fmt.height,
-                                    qualityLabel = fmt.quality ?: "${fmt.height}p",
+                                    qualityLabel = label,
                                     isAdaptive = false
                                 )
                             )
@@ -1745,6 +1773,19 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     playerResponse?.streamingData?.adaptiveFormats?.forEach { fmt ->
                         if (fmt.url != null && fmt.itag !in existingItags) {
                             existingItags.add(fmt.itag ?: 0)
+                            val h = fmt.height ?: 0
+                            val label = when {
+                                h >= 2160 -> "4K"
+                                h >= 1440 -> "1440p"
+                                h >= 1080 -> "1080p"
+                                h >= 720 -> "720p"
+                                h >= 480 -> "480p"
+                                h >= 360 -> "360p"
+                                h >= 240 -> "240p"
+                                h >= 144 -> "144p"
+                                h > 0 -> "${h}p"
+                                else -> fmt.quality ?: "unknown"
+                            }
                             formats.add(
                                 com.streamvault.app.domain.model.VideoFormat(
                                     itag = fmt.itag ?: 0,
@@ -1753,7 +1794,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                                     bitrate = fmt.bitrate ?: 0,
                                     width = fmt.width,
                                     height = fmt.height,
-                                    qualityLabel = fmt.quality ?: "${fmt.height}p",
+                                    qualityLabel = label,
                                     isAdaptive = true
                                 )
                             )

@@ -86,6 +86,7 @@ fun PlayerScreen(
     var isDragging by remember { mutableStateOf(false) }
     var captionText by remember { mutableStateOf<String?>(null) }
     var selectedCaptionTrack by remember { mutableStateOf<com.streamvault.app.domain.model.CaptionTrack?>(null) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     val dimGray = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -312,7 +313,7 @@ fun PlayerScreen(
                     modifier = Modifier
                         .let { if (uiState.isFullscreen) it.fillMaxSize() else it.fillMaxWidth().aspectRatio(16f / 9f).align(Alignment.TopCenter) }
                 ) {
-                    // Top gradient bar
+                    // Top gradient bar — clean: back + title + overflow
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -350,7 +351,7 @@ fun PlayerScreen(
                             Column(
                                 modifier = Modifier
                                     .align(Alignment.CenterStart)
-                                    .padding(start = 52.dp, end = 160.dp)
+                                    .padding(start = 52.dp, end = 100.dp)
                                     .clickable { onChannelClick(video.channelId) }
                             ) {
                                 Text(
@@ -372,67 +373,81 @@ fun PlayerScreen(
                             }
                         }
 
+                        // Quality badge + overflow menu
                         Row(
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)
-                                .padding(end = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                .padding(end = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Surface(
-                                onClick = { showCaptionSheet = true },
-                                modifier = Modifier.size(34.dp),
-                                shape = CircleShape,
-                                color = Color.Black.copy(alpha = 0.5f)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = "CC",
-                                        color = Color.White,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
                             Surface(
                                 onClick = { showQualitySheet = true },
                                 modifier = Modifier
-                                    .height(34.dp)
-                                    .widthIn(min = 34.dp)
-                                    .padding(horizontal = 8.dp),
-                                shape = RoundedCornerShape(17.dp),
-                                color = Color.Black.copy(alpha = 0.5f)
+                                    .height(28.dp)
+                                    .widthIn(min = 36.dp)
+                                    .padding(horizontal = 6.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(
                                         text = uiState.qualityLabel,
                                         color = Color.White,
-                                        fontSize = 9.sp,
+                                        fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1
                                     )
                                 }
                             }
 
-                            Surface(
-                                onClick = { showSpeedSheet = true },
-                                modifier = Modifier.size(34.dp),
-                                shape = CircleShape,
-                                color = Color.Black.copy(alpha = 0.5f)
+                            IconButton(
+                                onClick = { showOverflowMenu = true },
+                                modifier = Modifier.size(36.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = if (uiState.playbackSpeed == 1f) "1x" else "${uiState.playbackSpeed}x",
-                                        color = Color.White,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    "More options",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
                     }
 
-                    // Transport controls (center)
+                    // Overflow menu dropdown
+                    DropdownMenu(
+                        expanded = showOverflowMenu,
+                        onDismissRequest = { showOverflowMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Captions (CC)") },
+                            onClick = { showOverflowMenu = false; showCaptionSheet = true },
+                            leadingIcon = { Icon(Icons.Default.ClosedCaption, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Speed: ${if (uiState.playbackSpeed == 1f) "Normal" else "${uiState.playbackSpeed}x"}") },
+                            onClick = { showOverflowMenu = false; showSpeedSheet = true },
+                            leadingIcon = { Icon(Icons.Default.Speed, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Quality") },
+                            onClick = { showOverflowMenu = false; showQualitySheet = true },
+                            leadingIcon = { Icon(Icons.Default.HighQuality, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Equalizer") },
+                            onClick = { showOverflowMenu = false; onEqualizerClick() },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Equalizer, null,
+                                    tint = if (uiState.equalizerEnabled) MaterialTheme.colorScheme.primary else Color.Unspecified
+                                )
+                            }
+                        )
+                    }
+
+                    // Transport controls (center) — clean: rewind, play/pause, forward
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -478,142 +493,134 @@ fun PlayerScreen(
                         }
                     }
 
-                    // Seek bar (bottom) - thinner
-                    Box(
+                    // Bottom section: seek bar + action toolbar
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(40.dp)
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
-                                )
-                            )
                             .align(Alignment.BottomCenter)
-                            .padding(horizontal = 12.dp)
                     ) {
+                        // Seek bar with time labels
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
+                                    )
+                                )
+                                .padding(horizontal = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    formatTime(uiState.position),
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    formatTime(uiState.duration),
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 12.sp
+                                )
+                            }
+
+                            Slider(
+                                value = if (isDragging) dragPosition else uiState.position.toFloat().coerceIn(0f, uiState.duration.toFloat().coerceAtLeast(1f)),
+                                onValueChange = { dragPosition = it; isDragging = true },
+                                onValueChangeFinished = {
+                                    viewModel.seekTo(dragPosition.toLong())
+                                    isDragging = false
+                                },
+                                valueRange = 0f..uiState.duration.toFloat().coerceAtLeast(1f),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color.White,
+                                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                                    inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .align(Alignment.BottomCenter)
+                                    .height(12.dp)
+                                    .padding(bottom = 4.dp)
+                            )
+                        }
+
+                        // Action toolbar row — all secondary buttons
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .align(Alignment.TopCenter)
-                                .padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .background(Color.Black.copy(alpha = 0.75f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                formatTime(uiState.position),
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                formatTime(uiState.duration),
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 12.sp
-                            )
-                        }
-
-                        Slider(
-                            value = if (isDragging) dragPosition else uiState.position.toFloat().coerceIn(0f, uiState.duration.toFloat().coerceAtLeast(1f)),
-                            onValueChange = { dragPosition = it; isDragging = true },
-                            onValueChangeFinished = {
-                                viewModel.seekTo(dragPosition.toLong())
-                                isDragging = false
-                            },
-                            valueRange = 0f..uiState.duration.toFloat().coerceAtLeast(1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.BottomCenter)
-                                .height(12.dp)
-                                .padding(bottom = 4.dp)
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .statusBarsPadding()
-                            .padding(top = 84.dp, end = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        IconButton(
-                            onClick = { viewModel.toggleFullscreen() },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = if (uiState.isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
-                                contentDescription = if (uiState.isFullscreen) "Exit fullscreen" else "Fullscreen",
-                                tint = if (uiState.isFullscreen) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                try {
-                                    val act = context as? ComponentActivity
-                                    act?.let {
-                                        val pipActions = listOf(
-                                            android.app.RemoteAction(
-                                                android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_pause),
-                                                "Pause", "Pause", PendingIntent.getBroadcast(context, 10, Intent("com.streamvault.app.ACTION_PAUSE"), PendingIntent.FLAG_IMMUTABLE)
-                                            ),
-                                            android.app.RemoteAction(
-                                                android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_play),
-                                                "Play", "Play", PendingIntent.getBroadcast(context, 11, Intent("com.streamvault.app.ACTION_PLAY"), PendingIntent.FLAG_IMMUTABLE)
+                            // CC
+                            IconButton(onClick = { showCaptionSheet = true }, modifier = Modifier.size(40.dp)) {
+                                Text("CC", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            // Speed
+                            IconButton(onClick = { showSpeedSheet = true }, modifier = Modifier.size(40.dp)) {
+                                Text(
+                                    text = if (uiState.playbackSpeed == 1f) "1x" else "${uiState.playbackSpeed}x",
+                                    color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                                )
+                            }
+                            // Queue
+                            IconButton(onClick = { viewModel.toggleQueueSheet() }, modifier = Modifier.size(40.dp)) {
+                                Icon(Icons.Default.QueueMusic, stringResource(R.string.queue), tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                            // Equalizer
+                            IconButton(onClick = onEqualizerClick, modifier = Modifier.size(40.dp)) {
+                                Icon(
+                                    Icons.Default.Equalizer, stringResource(R.string.equalizer),
+                                    tint = if (uiState.equalizerEnabled) MaterialTheme.colorScheme.primary else Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            // PiP
+                            IconButton(
+                                onClick = {
+                                    try {
+                                        val act = context as? ComponentActivity
+                                        act?.let {
+                                            val pipActions = listOf(
+                                                android.app.RemoteAction(
+                                                    android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_pause),
+                                                    "Pause", "Pause", PendingIntent.getBroadcast(context, 10, Intent("com.streamvault.app.ACTION_PAUSE"), PendingIntent.FLAG_IMMUTABLE)
+                                                ),
+                                                android.app.RemoteAction(
+                                                    android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_play),
+                                                    "Play", "Play", PendingIntent.getBroadcast(context, 11, Intent("com.streamvault.app.ACTION_PLAY"), PendingIntent.FLAG_IMMUTABLE)
+                                                )
                                             )
-                                        )
-                                        val params = PictureInPictureParams.Builder()
-                                            .setAspectRatio(Rational(16, 9))
-                                            .setActions(pipActions)
-                                            .build()
-                                        it.enterPictureInPictureMode(params)
-                                    }
-                                } catch (_: Exception) { }
-                            },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.Default.PictureInPictureAlt,
-                                "Picture in Picture",
-                                tint = Color.White.copy(alpha = 0.8f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { viewModel.toggleQueueSheet() },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.Default.QueueMusic,
-                                stringResource(R.string.queue),
-                                tint = Color.White.copy(alpha = 0.8f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onEqualizerClick,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.Default.Equalizer,
-                                stringResource(R.string.equalizer),
-                                tint = if (uiState.equalizerEnabled) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.8f),
-                                modifier = Modifier.size(18.dp)
-                            )
+                                            val params = PictureInPictureParams.Builder()
+                                                .setAspectRatio(Rational(16, 9))
+                                                .setActions(pipActions)
+                                                .build()
+                                            it.enterPictureInPictureMode(params)
+                                        }
+                                    } catch (_: Exception) { }
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(Icons.Default.PictureInPictureAlt, "PiP", tint = Color.White, modifier = Modifier.size(20.dp))
+                            }
+                            // Fullscreen
+                            IconButton(onClick = { viewModel.toggleFullscreen() }, modifier = Modifier.size(40.dp)) {
+                                Icon(
+                                    imageVector = if (uiState.isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                                    contentDescription = if (uiState.isFullscreen) "Exit fullscreen" else "Fullscreen",
+                                    tint = if (uiState.isFullscreen) MaterialTheme.colorScheme.primary else Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
                     }
                 }
