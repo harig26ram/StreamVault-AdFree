@@ -45,7 +45,8 @@ data class YouTubeTokens(
 
 @Singleton
 class AuthManager @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val cookieStore: CookieStore
 ) {
     companion object {
         private const val TAG = "AuthManager"
@@ -117,7 +118,10 @@ class AuthManager @Inject constructor(
 
                 account.serverAuthCode?.let { authCode ->
                     scope.launch {
-                        exchangeAuthCodeForTokens(authCode)
+                        val tokens = exchangeAuthCodeForTokens(authCode)
+                        if (tokens != null) {
+                            cookieStore.extractCookiesFromOAuth(tokens.accessToken)
+                        }
                     }
                 }
             } else {
@@ -369,7 +373,10 @@ class AuthManager @Inject constructor(
 
                     account.serverAuthCode?.let { authCode ->
                         CoroutineScope(Dispatchers.IO).launch {
-                            exchangeAuthCodeForTokens(authCode)
+                            val tokens = exchangeAuthCodeForTokens(authCode)
+                            if (tokens != null) {
+                                cookieStore.extractCookiesFromOAuth(tokens.accessToken)
+                            }
                         }
                     }
                 } else {

@@ -91,7 +91,8 @@ data class SearchResult(
 
 data class HomeFeed(
     val items: List<FeedItem>,
-    val continuationToken: String?
+    val continuationToken: String?,
+    val fromCookieFeed: Boolean = false
 )
 
 sealed class FeedItem {

@@ -90,7 +90,7 @@ class VideoRepositoryImpl @Inject constructor(
                         Log.d(TAG, "Cookie-ML feed returned ${personalizedItems.size} items")
                         val feedItems = personalizedItems.map { FeedItem.Video(it) }
                         lastGoodFeed = feedItems
-                        return Result.success(HomeFeed(items = feedItems, continuationToken = null))
+                        return Result.success(HomeFeed(items = feedItems, continuationToken = null, fromCookieFeed = true))
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Cookie-ML feed failed: ${e.message}, continuing to fallback")
@@ -1664,152 +1664,183 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
 
     override suspend fun getVideoFormats(videoId: String): Result<List<com.streamvault.app.domain.model.VideoFormat>> {
         return try {
-            val request = PlayerRequest(
-                context = ClientContext(
-                    client = ClientInfo(
+            val formats = mutableListOf<com.streamvault.app.domain.model.VideoFormat>()
+            val existingItags = mutableSetOf<Int>()
+
+            data class ClientSpec(
+                val name: String,
+                val clientInfo: ClientInfo,
+                val contextBuilder: (ClientInfo) -> ClientContext = { ClientContext(client = it) }
+            )
+
+            val clientChain = listOf(
+                ClientSpec(
+                    name = "ANDROID_VR",
+                    clientInfo = ClientInfo(
+                        clientName = "ANDROID_VR",
+                        clientVersion = "1.57.29",
+                        androidSdkVersion = 30,
+                        platform = "MOBILE",
+                        userAgent = "com.google.android.apps.youtube.vr.oculus/1.57.29 (Linux; U; Android 12; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                        osName = "Android",
+                        osVersion = "12"
+                    )
+                ),
+                ClientSpec(
+                    name = "ANDROID",
+                    clientInfo = ClientInfo(
                         clientName = "ANDROID",
-                        clientVersion = "21.03.36",
+                        clientVersion = "20.10.38",
                         androidSdkVersion = 36,
                         platform = "MOBILE",
-                        userAgent = "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip",
+                        userAgent = "com.google.android.youtube/20.10.38(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip",
                         osName = "Android",
                         osVersion = "16"
                     )
                 ),
-                videoId = videoId
+                ClientSpec(
+                    name = "IOS",
+                    clientInfo = ClientInfo(
+                        clientName = "IOS",
+                        clientVersion = "20.10.38",
+                        platform = "MOBILE",
+                        userAgent = "com.google.ios.youtube/20.10.38 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X; en_US)",
+                        osName = "iPhone",
+                        osVersion = "18.3.2"
+                    )
+                )
             )
-            val response = apiService.player(request)
-            val formats = mutableListOf<com.streamvault.app.domain.model.VideoFormat>()
 
-            if (response.isSuccessful) {
-                val playerResponse = response.body()
-
-                playerResponse?.streamingData?.formats?.forEach { fmt ->
-                    if (fmt.url != null) {
-                        formats.add(
-                            com.streamvault.app.domain.model.VideoFormat(
-                                itag = fmt.itag ?: 0,
-                                url = fmt.url,
-                                mimeType = fmt.mimeType ?: "unknown",
-                                bitrate = fmt.bitrate ?: 0,
-                                width = fmt.width,
-                                height = fmt.height,
-                                qualityLabel = fmt.quality ?: "${fmt.height}p",
-                                isAdaptive = false
-                            )
-                        )
+            for (spec in clientChain) {
+                try {
+                    val request = PlayerRequest(
+                        context = spec.contextBuilder(spec.clientInfo),
+                        videoId = videoId
+                    )
+                    val response = apiService.player(request)
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "getVideoFormats: ${spec.name} client returned ${response.code()}")
+                        continue
                     }
-                }
+                    val playerResponse = response.body()
 
-                playerResponse?.streamingData?.adaptiveFormats?.forEach { fmt ->
-                    if (fmt.url != null) {
-                        formats.add(
-                            com.streamvault.app.domain.model.VideoFormat(
-                                itag = fmt.itag ?: 0,
-                                url = fmt.url,
-                                mimeType = fmt.mimeType ?: "unknown",
-                                bitrate = fmt.bitrate ?: 0,
-                                width = fmt.width,
-                                height = fmt.height,
-                                qualityLabel = fmt.quality ?: "${fmt.height}p",
-                                isAdaptive = true
+                    playerResponse?.streamingData?.formats?.forEach { fmt ->
+                        if (fmt.url != null && fmt.itag !in existingItags) {
+                            existingItags.add(fmt.itag ?: 0)
+                            formats.add(
+                                com.streamvault.app.domain.model.VideoFormat(
+                                    itag = fmt.itag ?: 0,
+                                    url = fmt.url,
+                                    mimeType = fmt.mimeType ?: "unknown",
+                                    bitrate = fmt.bitrate ?: 0,
+                                    width = fmt.width,
+                                    height = fmt.height,
+                                    qualityLabel = fmt.quality ?: "${fmt.height}p",
+                                    isAdaptive = false
+                                )
                             )
-                        )
-                    }
-                }
-
-                Log.d(TAG, "getVideoFormats: ANDROID API gave ${formats.size} direct URL formats")
-            }
-
-            Log.d(TAG, "getVideoFormats: fetching watch page for cipher formats...")
-            val watchPageData = fetchWatchPageFormats(videoId)
-            val watchPageJson = watchPageData.json
-            if (watchPageJson != null) {
-                Log.d(TAG, "getVideoFormats: watch page JSON len=${watchPageJson.length}")
-
-                var cipherOps: List<CipherDecryptor.CipherOp> = emptyList()
-                var nTransformOp: NParamDecryptor.NTransformOp? = null
-
-                val jsContent = watchPageData.jsContent
-                if (jsContent != null) {
-                    Log.d(TAG, "getVideoFormats: parsing cipher ops from fetched JS (${jsContent.length} chars)")
-                    val decryptor = CipherDecryptor()
-                    val parsedOps = decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.NAME_LOOKUP)
-                    if (parsedOps.isNotEmpty()) {
-                        cipherOps = parsedOps
-                        Log.d(TAG, "getVideoFormats: parsed ${cipherOps.size} cipher ops from JS")
-                    } else {
-                        val parsedFallback = decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.FALLBACK)
-                        if (parsedFallback.isNotEmpty()) {
-                            cipherOps = parsedFallback
-                            Log.d(TAG, "getVideoFormats: fallback parsed ${cipherOps.size} cipher ops from JS")
-                        } else {
-                            Log.d(TAG, "getVideoFormats: could not parse cipher ops, using hardcoded fallback")
-                            cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: emptyList()
                         }
                     }
 
-                    val nParamDecryptor = NParamDecryptor()
-                    val parsedN = nParamDecryptor.parseNTransformCode(jsContent)
-                    if (parsedN != null) {
-                        nTransformOp = parsedN
-                        Log.d(TAG, "getVideoFormats: parsed n-transform from JS")
+                    playerResponse?.streamingData?.adaptiveFormats?.forEach { fmt ->
+                        if (fmt.url != null && fmt.itag !in existingItags) {
+                            existingItags.add(fmt.itag ?: 0)
+                            formats.add(
+                                com.streamvault.app.domain.model.VideoFormat(
+                                    itag = fmt.itag ?: 0,
+                                    url = fmt.url,
+                                    mimeType = fmt.mimeType ?: "unknown",
+                                    bitrate = fmt.bitrate ?: 0,
+                                    width = fmt.width,
+                                    height = fmt.height,
+                                    qualityLabel = fmt.quality ?: "${fmt.height}p",
+                                    isAdaptive = true
+                                )
+                            )
+                        }
+                    }
+
+                    Log.d(TAG, "getVideoFormats: ${spec.name} client gave ${formats.size} total formats")
+
+                    val maxHeight = formats.maxOfOrNull { it.height ?: 0 } ?: 0
+                    if (maxHeight >= 720) {
+                        Log.d(TAG, "getVideoFormats: ${spec.name} reached ${maxHeight}p, skipping remaining clients")
+                        break
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "getVideoFormats: ${spec.name} client failed: ${e.message}")
+                }
+            }
+
+            if (formats.isEmpty()) {
+                Log.d(TAG, "getVideoFormats: no direct URL formats from any client, trying cipher decryption...")
+                val watchPageData = fetchWatchPageFormats(videoId)
+                val watchPageJson = watchPageData.json
+                if (watchPageJson != null) {
+                    Log.d(TAG, "getVideoFormats: watch page JSON len=${watchPageJson.length}")
+
+                    var cipherOps: List<CipherDecryptor.CipherOp> = emptyList()
+                    var nTransformOp: NParamDecryptor.NTransformOp? = null
+
+                    val jsContent = watchPageData.jsContent
+                    if (jsContent != null) {
+                        Log.d(TAG, "getVideoFormats: parsing cipher ops from fetched JS (${jsContent.length} chars)")
+                        val decryptor = CipherDecryptor()
+                        val parsedOps = decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.NAME_LOOKUP)
+                        if (parsedOps.isNotEmpty()) {
+                            cipherOps = parsedOps
+                            Log.d(TAG, "getVideoFormats: parsed ${cipherOps.size} cipher ops from JS")
+                        } else {
+                            val parsedFallback = decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.FALLBACK)
+                            if (parsedFallback.isNotEmpty()) {
+                                cipherOps = parsedFallback
+                                Log.d(TAG, "getVideoFormats: fallback parsed ${cipherOps.size} cipher ops from JS")
+                            } else {
+                                Log.d(TAG, "getVideoFormats: could not parse cipher ops, using hardcoded fallback")
+                                cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: emptyList()
+                            }
+                        }
+
+                        val nParamDecryptor = NParamDecryptor()
+                        val parsedN = nParamDecryptor.parseNTransformCode(jsContent)
+                        if (parsedN != null) {
+                            nTransformOp = parsedN
+                            Log.d(TAG, "getVideoFormats: parsed n-transform from JS")
+                        } else {
+                            Log.d(TAG, "getVideoFormats: could not parse n-transform, using known algorithm")
+                            nTransformOp = NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull()
+                        }
                     } else {
-                        Log.d(TAG, "getVideoFormats: could not parse n-transform, using known algorithm")
+                        Log.d(TAG, "getVideoFormats: no player JS fetched, using hardcoded fallbacks")
+                        cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: emptyList()
                         nTransformOp = NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull()
                     }
-                } else {
-                    Log.d(TAG, "getVideoFormats: no player JS fetched, using hardcoded fallbacks")
-                    cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: emptyList()
-                    nTransformOp = NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull()
-                }
 
-                val decryptedFormats = streamUrlExtractor.extract(watchPageJson, cipherOps, nTransformOp)
-                Log.d(TAG, "getVideoFormats: decrypted ${decryptedFormats.size} cipher formats from watch page")
+                    val decryptedFormats = streamUrlExtractor.extract(watchPageJson, cipherOps, nTransformOp)
+                    Log.d(TAG, "getVideoFormats: decrypted ${decryptedFormats.size} cipher formats from watch page")
 
-                val decryptedAndroidFormats = if (response.isSuccessful && response.body() != null) {
-                    val androidJson = com.google.gson.Gson().toJson(response.body())
-                    Log.d(TAG, "getVideoFormats: also extracting from ANDROID response (len=${androidJson.length})")
-                    streamUrlExtractor.extract(androidJson, cipherOps, nTransformOp)
-                } else emptyList()
-                Log.d(TAG, "getVideoFormats: decrypted ${decryptedAndroidFormats.size} cipher formats from ANDROID response")
-
-                val existingItags = formats.map { it.itag }.toSet()
-                for (decrypted in decryptedFormats) {
-                    if (decrypted.url.isNotEmpty() && decrypted.itag !in existingItags) {
-                        formats.add(
-                            com.streamvault.app.domain.model.VideoFormat(
-                                itag = decrypted.itag,
-                                url = decrypted.url,
-                                mimeType = decrypted.mimeType,
-                                bitrate = decrypted.bitrate ?: 0,
-                                width = decrypted.width,
-                                height = decrypted.height,
-                                qualityLabel = "${decrypted.height}p",
-                                isAdaptive = decrypted.type != com.streamvault.player.youtube.StreamType.PROGRESSIVE
+                    for (decrypted in decryptedFormats) {
+                        if (decrypted.url.isNotEmpty() && decrypted.itag !in existingItags) {
+                            existingItags.add(decrypted.itag)
+                            formats.add(
+                                com.streamvault.app.domain.model.VideoFormat(
+                                    itag = decrypted.itag,
+                                    url = decrypted.url,
+                                    mimeType = decrypted.mimeType,
+                                    bitrate = decrypted.bitrate ?: 0,
+                                    width = decrypted.width,
+                                    height = decrypted.height,
+                                    qualityLabel = "${decrypted.height}p",
+                                    isAdaptive = decrypted.type != com.streamvault.player.youtube.StreamType.PROGRESSIVE
+                                )
                             )
-                        )
-                    }
-                }
-                for (decrypted in decryptedAndroidFormats) {
-                    if (decrypted.url.isNotEmpty() && decrypted.itag !in existingItags) {
-                        formats.add(
-                            com.streamvault.app.domain.model.VideoFormat(
-                                itag = decrypted.itag,
-                                url = decrypted.url,
-                                mimeType = decrypted.mimeType,
-                                bitrate = decrypted.bitrate ?: 0,
-                                width = decrypted.width,
-                                height = decrypted.height,
-                                qualityLabel = "${decrypted.height}p",
-                                isAdaptive = decrypted.type != com.streamvault.player.youtube.StreamType.PROGRESSIVE
-                            )
-                        )
+                        }
                     }
                 }
             }
 
-            Log.d(TAG, "getVideoFormats: FINAL ${formats.size} formats for $videoId")
+            Log.d(TAG, "getVideoFormats: FINAL ${formats.size} formats for $videoId " +
+                "(max ${formats.maxOfOrNull { it.height ?: 0 } ?: 0}p)")
             Result.success(formats)
         } catch (e: Exception) {
             Log.w(TAG, "Formats exception: ${e.message}")

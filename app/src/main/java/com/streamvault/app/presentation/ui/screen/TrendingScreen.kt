@@ -119,7 +119,7 @@ fun TrendingScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             Box {
-                TopBarGradientOverlay(height = 130.dp)
+                TopBarGradientOverlay(height = 64.dp)
                 TopAppBar(
                     title = {
                         Text(

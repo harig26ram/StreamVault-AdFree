@@ -266,8 +266,7 @@ fun PlayerScreen(
                         }
                     }
                 },
-                modifier = Modifier
-                    .let { if (uiState.isFullscreen) it.fillMaxSize() else it.fillMaxWidth().aspectRatio(16f / 9f) }
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
             )
 
             GestureOverlay(
@@ -282,8 +281,7 @@ fun PlayerScreen(
                         viewModel.onVolumeChanged(uiState.volume - delta / 500f)
                     }
                 },
-                modifier = Modifier
-                    .let { if (uiState.isFullscreen) it.fillMaxSize() else it.fillMaxWidth().aspectRatio(16f / 9f) }
+                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
             )
 
             if (captionText != null) {
@@ -793,27 +791,6 @@ fun PlayerScreen(
                             icon = Icons.Default.PlaylistAdd,
                             label = if (uiState.savedToWatchLater) "Saved" else "Save",
                             onClick = { viewModel.saveToWatchLater() }
-                        )
-                        MiniAction(
-                            icon = Icons.Default.Download,
-                            label = if (uiState.isDownloaded) "Downloaded" else if (uiState.isPaused) "Resume" else if (uiState.isDownloading) "${uiState.downloadProgress}%" else "Download",
-                            onClick = {
-                                when {
-                                    uiState.isDownloaded -> {
-                                        viewModel.deleteDownload()
-                                        android.widget.Toast.makeText(context, "Download deleted", android.widget.Toast.LENGTH_SHORT).show()
-                                    }
-                                    uiState.isPaused -> {
-                                        viewModel.startDownload()
-                                    }
-                                    uiState.isDownloading -> {
-                                        viewModel.pauseDownload()
-                                    }
-                                    else -> {
-                                        viewModel.startDownload()
-                                    }
-                                }
-                            }
                         )
                         MiniAction(
                             icon = Icons.Default.OpenInNew,

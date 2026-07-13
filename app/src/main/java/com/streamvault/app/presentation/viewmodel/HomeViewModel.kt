@@ -52,7 +52,7 @@ class HomeViewModel @Inject constructor(
                             feedItems = feed.items,
                             continuationToken = feed.continuationToken,
                             isLoading = false,
-                            feedIsLocalFallback = !cookieStore.isConnected.value
+                        feedIsLocalFallback = result.getOrNull()?.fromCookieFeed != true
                         )
                     },
                     onFailure = { e ->

@@ -94,7 +94,7 @@ fun HomeScreen(
     ) {
         // Top app bar with soft brand gradient overlay
         Box {
-            TopBarGradientOverlay(height = 120.dp)
+            TopBarGradientOverlay(height = 64.dp)
             CenterAlignedTopAppBar(
                 title = {
                     Text(
