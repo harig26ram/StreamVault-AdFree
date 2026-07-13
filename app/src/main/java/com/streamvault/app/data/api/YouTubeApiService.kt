@@ -68,7 +68,6 @@ data class PlayerRequest(
     val context: ClientContext,
     val videoId: String,
     val params: String? = null,
-    val playbackContext: PlaybackContext? = null,
     val contentCheckOk: Boolean = true,
     val racyCheckOk: Boolean = true
 )
@@ -96,7 +95,8 @@ data class ClientContext(
     val client: ClientInfo,
     val user: UserContext? = null,
     val request: RequestContext? = null,
-    val thirdParty: ThirdPartyContext? = null
+    val thirdParty: ThirdPartyContext? = null,
+    val playbackContext: PlaybackContext? = null
 )
 
 data class ThirdPartyContext(

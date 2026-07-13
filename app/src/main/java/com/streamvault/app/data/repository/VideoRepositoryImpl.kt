@@ -1609,16 +1609,16 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                                     put("hl", "en")
                                     put("gl", "US")
                                 })
+                                put("playbackContext", org.json.JSONObject().apply {
+                                    put("contentPlaybackContext", org.json.JSONObject().apply {
+                                        put("signatureTimestamp", 20348)
+                                        put("lactMilliseconds", System.currentTimeMillis() % 100000)
+                                    })
+                                })
                             })
                             put("videoId", videoId)
                             put("contentCheckOk", true)
                             put("racyCheckOk", true)
-                            put("playbackContext", org.json.JSONObject().apply {
-                                put("contentPlaybackContext", org.json.JSONObject().apply {
-                                    put("signatureTimestamp", 20348)
-                                    put("lactMilliseconds", System.currentTimeMillis() % 100000)
-                                })
-                            })
                         }
                         val apiRequest = okhttp3.Request.Builder()
                             .url("https://www.youtube.com/youtubei/v1/player?key=$apiKey")
@@ -1746,9 +1746,8 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                         )
                     )
                     val request = PlayerRequest(
-                        context = spec.contextBuilder(spec.clientInfo),
-                        videoId = videoId,
-                        playbackContext = playbackCtx
+                        context = spec.contextBuilder(spec.clientInfo).copy(playbackContext = playbackCtx),
+                        videoId = videoId
                     )
                     val response = apiService.player(spec.clientInfo.userAgent ?: "com.google.android.youtube/21.03.36 (Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip", request)
                     if (!response.isSuccessful) {
