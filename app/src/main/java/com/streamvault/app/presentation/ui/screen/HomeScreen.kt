@@ -206,14 +206,45 @@ fun HomeScreen(
                 }
             }
             else -> {
-                MagazineFeed(
-                    feedItems = uiState.feedItems,
-                    onVideoClick = onVideoClick,
-                    onChannelClick = onChannelClick,
-                    onPlaylistClick = onPlaylistClick,
-                    modifier = Modifier.fillMaxSize(),
-                    gridState = gridState
-                )
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (uiState.feedIsLocalFallback) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSettingsClick() },
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.feed_fallback_banner),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = stringResource(R.string.reconnect),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                    MagazineFeed(
+                        feedItems = uiState.feedItems,
+                        onVideoClick = onVideoClick,
+                        onChannelClick = onChannelClick,
+                        onPlaylistClick = onPlaylistClick,
+                        modifier = Modifier.fillMaxSize(),
+                        gridState = gridState
+                    )
+                }
             }
         }
     }

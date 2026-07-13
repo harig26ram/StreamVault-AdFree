@@ -12,5 +12,5 @@
 | T5: NetworkModule + getHomeFeed | ✅ DONE | fc3d9c8 | Clean |
 | T6: MagazineFeed + HomeScreen | ✅ DONE | 9c3979b | Build OK |
 | T7: CollapsiblePanel + Player | ✅ DONE | 0045679 | Build OK |
-| T8: Settings connect + doc | ⏳ PENDING | — | — |
+| T8: Settings connect + doc | ✅ DONE | 6664c5f | Build OK |
 | T9: Reconnect banner + flag | ⏳ PENDING | — | — |

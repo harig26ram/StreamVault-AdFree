@@ -7,6 +7,7 @@ import com.streamvault.app.domain.model.HomeFeed
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.usecase.AddToWatchLaterUseCase
 import com.streamvault.app.domain.usecase.GetHomeFeedUseCase
+import com.streamvault.app.auth.CookieStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,13 +21,15 @@ data class HomeUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val continuationToken: String? = null,
-    val isRefreshing: Boolean = false
+    val isRefreshing: Boolean = false,
+    val feedIsLocalFallback: Boolean = false
 )
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val getHomeFeedUseCase: GetHomeFeedUseCase,
-    private val addToWatchLaterUseCase: AddToWatchLaterUseCase
+    private val addToWatchLaterUseCase: AddToWatchLaterUseCase,
+    private val cookieStore: CookieStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -48,7 +51,8 @@ class HomeViewModel @Inject constructor(
                         _uiState.value = _uiState.value.copy(
                             feedItems = feed.items,
                             continuationToken = feed.continuationToken,
-                            isLoading = false
+                            isLoading = false,
+                            feedIsLocalFallback = !cookieStore.isConnected.value
                         )
                     },
                     onFailure = { e ->

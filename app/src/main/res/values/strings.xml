@@ -28,6 +28,8 @@
     <string name="loading">Loading…</string>
     <string name="retry">Retry</string>
     <string name="error_occurred">Something went wrong</string>
+    <string name="feed_fallback_banner">Showing recommendations from your activity. Connect account for personalized feed.</string>
+    <string name="reconnect">Reconnect</string>
     <string name="no_results">No results found</string>
     <string name="search_hint">Search videos…</string>
     <string name="recent_searches">Recent searches</string>
