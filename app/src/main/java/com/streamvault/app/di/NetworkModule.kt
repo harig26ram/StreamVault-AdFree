@@ -76,7 +76,11 @@ object NetworkModule {
 
             val builder = original.newBuilder()
                 .url(newUrl)
-                .header("User-Agent", "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip")
+                .apply {
+                    if (original.header("User-Agent") == null) {
+                        header("User-Agent", "com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip")
+                    }
+                }
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .header("Content-Type", "application/json")
 

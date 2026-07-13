@@ -25,6 +25,7 @@ interface YouTubeApiService {
 
     @POST("youtubei/v1/player")
     suspend fun player(
+        @Header("User-Agent") userAgent: String,
         @Body request: PlayerRequest
     ): Response<PlayerResponse>
 

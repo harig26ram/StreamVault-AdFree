@@ -945,7 +945,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                 ),
                 videoId = videoId
             )
-            val response = apiService.player(request)
+            val response = apiService.player("com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip", request)
             Log.d(TAG, "Player response code: ${response.code()}")
             if (response.isSuccessful) {
                 val playerResponse = response.body()
@@ -1405,7 +1405,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                 ),
                 videoId = videoId
             )
-            val response = apiService.player(request)
+            val response = apiService.player("com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip", request)
             if (response.isSuccessful) {
                 val playerResponse = response.body()
                 Log.d(TAG, "Stream formats: ${playerResponse?.streamingData?.formats?.size}, adaptive: ${playerResponse?.streamingData?.adaptiveFormats?.size}")
@@ -1504,7 +1504,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     ),
                     videoId = playerResponse?.videoDetails?.videoId ?: ""
                 )
-                val webResponse = apiService.player(webRequest)
+                val webResponse = apiService.player("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", webRequest)
                 if (webResponse.isSuccessful) {
                     val webJson = gson.toJson(webResponse.body())
                     val (fetchedCipherJs, fetchedNTransformJs) = playerJsFetcher.fetchPlayerData(webJson)
@@ -1681,7 +1681,6 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                         clientName = "ANDROID_VR",
                         clientVersion = "1.65.10",
                         androidSdkVersion = 32,
-                        platform = "MOBILE",
                         userAgent = "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
                         osName = "Android",
                         osVersion = "12L",
@@ -1732,7 +1731,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                         context = spec.contextBuilder(spec.clientInfo),
                         videoId = videoId
                     )
-                    val response = apiService.player(request)
+                    val response = apiService.player(spec.clientInfo.userAgent ?: "com.google.android.youtube/21.03.36 (Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip", request)
                     if (!response.isSuccessful) {
                         Log.w(TAG, "getVideoFormats: ${spec.name} client returned ${response.code()}")
                         continue
@@ -1905,7 +1904,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                 ),
                 videoId = videoId
             )
-            val response = apiService.player(request)
+            val response = apiService.player("com.google.android.youtube/21.03.36(Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip", request)
             if (response.isSuccessful) {
                 val tracks = response.body()?.captions?.playerCaptionsTracklistRenderer?.captionTracks
                     ?.map { track ->
