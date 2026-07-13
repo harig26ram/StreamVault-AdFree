@@ -1667,6 +1667,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
         return try {
             val formats = mutableListOf<com.streamvault.app.domain.model.VideoFormat>()
             val existingItags = mutableSetOf<Int>()
+            var cipherSourceJson: String? = null
 
             data class ClientSpec(
                 val name: String,
@@ -1737,6 +1738,13 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                         continue
                     }
                     val playerResponse = response.body()
+
+                    val hasCipherFormats = playerResponse?.streamingData?.adaptiveFormats
+                        ?.any { it.signatureCipher != null || it.cipher != null } == true
+                    if (hasCipherFormats) {
+                        cipherSourceJson = Gson().toJson(playerResponse)
+                        Log.d(TAG, "getVideoFormats: ${spec.name} returned cipher formats, saved as cipher source")
+                    }
 
                     playerResponse?.streamingData?.formats?.forEach { fmt ->
                         if (fmt.url != null && fmt.itag !in existingItags) {
@@ -1817,65 +1825,68 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
             if (maxHeight < 720) {
                 Log.d(TAG, "getVideoFormats: best quality ${maxHeight}p < 720p, trying cipher decryption for higher qualities...")
                 val watchPageData = fetchWatchPageFormats(videoId)
-                val watchPageJson = watchPageData.json
-                if (watchPageJson != null) {
-                    Log.d(TAG, "getVideoFormats: watch page JSON len=${watchPageJson.length}")
+                val jsContent = watchPageData.jsContent
 
-                    var cipherOps: List<CipherDecryptor.CipherOp> = emptyList()
-                    var nTransformOp: NParamDecryptor.NTransformOp? = null
-
-                    val jsContent = watchPageData.jsContent
-                    if (jsContent != null) {
-                        Log.d(TAG, "getVideoFormats: parsing cipher ops from fetched JS (${jsContent.length} chars)")
-                        val decryptor = CipherDecryptor()
-                        val parsedOps = decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.NAME_LOOKUP)
-                        if (parsedOps.isNotEmpty()) {
-                            cipherOps = parsedOps
-                            Log.d(TAG, "getVideoFormats: parsed ${cipherOps.size} cipher ops from JS")
-                        } else {
-                            val parsedFallback = decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.FALLBACK)
-                            if (parsedFallback.isNotEmpty()) {
-                                cipherOps = parsedFallback
-                                Log.d(TAG, "getVideoFormats: fallback parsed ${cipherOps.size} cipher ops from JS")
-                            } else {
-                                Log.d(TAG, "getVideoFormats: could not parse cipher ops, using hardcoded fallback")
-                                cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: emptyList()
-                            }
-                        }
-
-                        val nParamDecryptor = NParamDecryptor()
-                        val parsedN = nParamDecryptor.parseNTransformCode(jsContent)
-                        if (parsedN != null) {
-                            nTransformOp = parsedN
-                            Log.d(TAG, "getVideoFormats: parsed n-transform from JS")
-                        } else {
-                            Log.d(TAG, "getVideoFormats: could not parse n-transform, using known algorithm")
-                            nTransformOp = NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull()
-                        }
+                val cipherOps: List<CipherDecryptor.CipherOp>
+                val nTransformOp: NParamDecryptor.NTransformOp?
+                if (jsContent != null) {
+                    Log.d(TAG, "getVideoFormats: parsing cipher ops from fetched JS (${jsContent.length} chars)")
+                    val decryptor = CipherDecryptor()
+                    val parsedOps = decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.NAME_LOOKUP)
+                    cipherOps = if (parsedOps.isNotEmpty()) {
+                        Log.d(TAG, "getVideoFormats: parsed ${parsedOps.size} cipher ops from JS")
+                        parsedOps
                     } else {
-                        Log.d(TAG, "getVideoFormats: no player JS fetched, using hardcoded fallbacks")
-                        cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: emptyList()
-                        nTransformOp = NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull()
+                        val parsedFallback = decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.FALLBACK)
+                        if (parsedFallback.isNotEmpty()) {
+                            Log.d(TAG, "getVideoFormats: fallback parsed ${parsedFallback.size} cipher ops from JS")
+                            parsedFallback
+                        } else {
+                            Log.d(TAG, "getVideoFormats: could not parse cipher ops, using hardcoded fallback")
+                            CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: emptyList()
+                        }
                     }
+                    val nParamDecryptor = NParamDecryptor()
+                    val parsedN = nParamDecryptor.parseNTransformCode(jsContent)
+                    nTransformOp = if (parsedN != null) {
+                        Log.d(TAG, "getVideoFormats: parsed n-transform from JS")
+                        parsedN
+                    } else {
+                        Log.d(TAG, "getVideoFormats: could not parse n-transform, using known algorithm")
+                        NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull()
+                    }
+                } else {
+                    Log.d(TAG, "getVideoFormats: no player JS fetched, using hardcoded fallbacks")
+                    cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: emptyList()
+                    nTransformOp = NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull()
+                }
 
-                    val decryptedFormats = streamUrlExtractor.extract(watchPageJson, cipherOps, nTransformOp)
-                    Log.d(TAG, "getVideoFormats: decrypted ${decryptedFormats.size} cipher formats from watch page")
-
+                // PRIMARY: decrypt the ANDROID client's own cipher formats (no PO token required on real devices)
+                val cipherSource = cipherSourceJson
+                if (cipherSource != null && cipherOps.isNotEmpty()) {
+                    val decryptedFormats = streamUrlExtractor.extract(cipherSource, cipherOps, nTransformOp)
+                    Log.d(TAG, "getVideoFormats: decrypted ${decryptedFormats.size} ANDROID cipher formats")
                     for (decrypted in decryptedFormats) {
                         if (decrypted.url.isNotEmpty() && decrypted.itag !in existingItags) {
                             existingItags.add(decrypted.itag)
-                            formats.add(
-                                com.streamvault.app.domain.model.VideoFormat(
-                                    itag = decrypted.itag,
-                                    url = decrypted.url,
-                                    mimeType = decrypted.mimeType,
-                                    bitrate = decrypted.bitrate ?: 0,
-                                    width = decrypted.width,
-                                    height = decrypted.height,
-                                    qualityLabel = "${decrypted.height}p",
-                                    isAdaptive = decrypted.type != com.streamvault.player.youtube.StreamType.PROGRESSIVE
-                                )
-                            )
+                            formats.add(toVideoFormat(decrypted))
+                        }
+                    }
+                }
+
+                // SECONDARY: WEB watch page (may require a PO token on real devices — kept as fallback)
+                val newMax = formats.maxOfOrNull { it.height ?: 0 } ?: 0
+                if (newMax < 720) {
+                    val watchPageJson = watchPageData.json
+                    if (watchPageJson != null) {
+                        Log.d(TAG, "getVideoFormats: watch page JSON len=${watchPageJson.length}")
+                        val decryptedFormats = streamUrlExtractor.extract(watchPageJson, cipherOps, nTransformOp)
+                        Log.d(TAG, "getVideoFormats: decrypted ${decryptedFormats.size} WEB cipher formats")
+                        for (decrypted in decryptedFormats) {
+                            if (decrypted.url.isNotEmpty() && decrypted.itag !in existingItags) {
+                                existingItags.add(decrypted.itag)
+                                formats.add(toVideoFormat(decrypted))
+                            }
                         }
                     }
                 }
@@ -1888,6 +1899,21 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
             Log.w(TAG, "Formats exception: ${e.message}")
             Result.failure(e)
         }
+    }
+
+    private fun toVideoFormat(decrypted: com.streamvault.player.youtube.DecryptedStreamFormat): com.streamvault.app.domain.model.VideoFormat {
+        val height = decrypted.height
+        val width = decrypted.width
+        return com.streamvault.app.domain.model.VideoFormat(
+            itag = decrypted.itag,
+            url = decrypted.url,
+            mimeType = decrypted.mimeType,
+            bitrate = decrypted.bitrate ?: 0,
+            width = width,
+            height = height,
+            qualityLabel = if (height != null && height > 0) "${height}p" else "unknown",
+            isAdaptive = decrypted.type != com.streamvault.player.youtube.StreamType.PROGRESSIVE
+        )
     }
 
     override suspend fun getCaptionTracks(videoId: String): Result<List<com.streamvault.app.domain.model.CaptionTrack>> {
