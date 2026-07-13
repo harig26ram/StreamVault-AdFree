@@ -68,7 +68,9 @@ data class PlayerRequest(
     val context: ClientContext,
     val videoId: String,
     val params: String? = null,
-    val playbackContext: PlaybackContext? = null
+    val playbackContext: PlaybackContext? = null,
+    val contentCheckOk: Boolean = true,
+    val racyCheckOk: Boolean = true
 )
 
 data class PlaybackContext(
@@ -76,9 +78,13 @@ data class PlaybackContext(
 )
 
 data class ContentPlaybackContext(
-    val html5Preference: String = "HTML5_PREF_WANTS",
-    val lazyLoadEnabled: Boolean = true,
-    val html5CryptoUnavailablePlaybackPolicy: String = "HTML5_CRYPTO_UNAVAILABLE_PLAYBACK_POLICY_ALLOW"
+    val lactMilliseconds: Long? = null,
+    val vis: Int = 0,
+    val splay: Boolean = false,
+    val currentUrl: String? = null,
+    val autonavState: String = "STATE_NONE",
+    val signatureTimestamp: Int? = null,
+    val html5Preference: String = "SHARED"
 )
 
 data class SubscriptionsRequest(
