@@ -19,7 +19,8 @@ object DebugLogExporter {
             val dir = File(context.getExternalFilesDir(null), "logs")
             if (!dir.exists()) dir.mkdirs()
             val file = File(dir, FILENAME)
-            val cmd = "logcat -d --pid=${android.os.Process.myPid()}"
+            val pid = android.os.Process.myPid()
+            val cmd = "logcat -b all -v threadtime -d --pid=$pid -t 2000"
             val process = Runtime.getRuntime().exec(cmd)
             BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
                 FileWriter(file).use { writer ->

@@ -728,32 +728,40 @@ class PlayerViewModel @Inject constructor(
             )
         }
 
+        val videoId = _currentVideoId.value
+        viewModelScope.launch {
+            getVideoFormatsUseCase(videoId).fold(
+                onSuccess = { freshFormats ->
+                    _uiState.update { it.copy(formats = freshFormats) }
+                    val freshTarget = freshFormats.firstOrNull { it.itag == format.itag }
+                    val freshAudio = freshFormats.filter { it.isAdaptive && it.isAudio }.maxByOrNull { it.bitrate }
+                    val videoUrl = freshTarget?.url ?: format.url
+                    val audioUrl = freshAudio?.url ?: freshFormats.filter { it.isAdaptive && it.isAudio }.maxByOrNull { it.bitrate }?.url
+                    doLoadStreams(audioUrl, videoUrl, freshTarget ?: format)
+                },
+                onFailure = {
+                    val bestAudio = _uiState.value.formats.filter { it.isAdaptive && it.isAudio }.maxByOrNull { it.bitrate }
+                    doLoadStreams(bestAudio?.url, format.url, format)
+                }
+            )
+        }
+    }
+
+    private fun doLoadStreams(audioUrl: String?, videoUrl: String, format: VideoFormat) {
         if (format.isAdaptive && format.isAudio) {
             if (surfaceReady) {
-                engine.loadStreams(format.url, null)
+                engine.loadStreams(audioUrl ?: videoUrl, null)
             } else {
-                pendingAudioUrl = format.url
+                pendingAudioUrl = audioUrl ?: videoUrl
                 pendingVideoUrl = null
             }
             _uiState.update { it.copy(isAudioOnly = true) }
         } else {
-            val bestAudio = _uiState.value.formats
-                .filter { it.isAdaptive && it.isAudio }
-                .maxByOrNull { it.bitrate }
-            if (bestAudio != null) {
-                if (surfaceReady) {
-                    engine.loadStreams(bestAudio.url, format.url)
-                } else {
-                    pendingAudioUrl = bestAudio.url
-                    pendingVideoUrl = format.url
-                }
+            if (surfaceReady) {
+                engine.loadStreams(audioUrl, videoUrl)
             } else {
-                if (surfaceReady) {
-                    engine.loadStreams(null, format.url)
-                } else {
-                    pendingAudioUrl = null
-                    pendingVideoUrl = format.url
-                }
+                pendingAudioUrl = audioUrl
+                pendingVideoUrl = videoUrl
             }
         }
     }

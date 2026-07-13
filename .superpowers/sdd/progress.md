@@ -13,4 +13,4 @@
 | T6: MagazineFeed + HomeScreen | ✅ DONE | 9c3979b | Build OK |
 | T7: CollapsiblePanel + Player | ✅ DONE | 0045679 | Build OK |
 | T8: Settings connect + doc | ✅ DONE | 6664c5f | Build OK |
-| T9: Reconnect banner + flag | ⏳ PENDING | — | — |
+| T9: Reconnect banner + flag | ✅ DONE | 00c5759 | Build OK |
