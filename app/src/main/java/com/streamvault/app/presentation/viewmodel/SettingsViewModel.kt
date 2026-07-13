@@ -3,6 +3,7 @@ package com.streamvault.app.presentation.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.auth.AuthManager
+import com.streamvault.app.auth.CookieStore
 import com.streamvault.app.auth.UserProfile
 import com.streamvault.app.data.local.SettingsManager
 import com.streamvault.app.domain.model.Video
@@ -49,7 +50,8 @@ class SettingsViewModel @Inject constructor(
     private val clearWatchHistoryUseCase: ClearWatchHistoryUseCase,
     private val settingsManager: SettingsManager,
     private val authManager: AuthManager,
-    private val themeManager: ThemeManager
+    private val themeManager: ThemeManager,
+    val cookieStore: CookieStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -230,6 +232,18 @@ class SettingsViewModel @Inject constructor(
                 watchHistory = emptyList(),
                 showClearHistoryDialog = false
             )
+        }
+    }
+
+    fun connectCookies(cookies: String, sapisid: String) {
+        viewModelScope.launch {
+            cookieStore.save(cookies, sapisid)
+        }
+    }
+
+    fun disconnectCookies() {
+        viewModelScope.launch {
+            cookieStore.clear()
         }
     }
 }

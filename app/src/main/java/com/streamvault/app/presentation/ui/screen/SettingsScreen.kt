@@ -30,6 +30,7 @@ import com.streamvault.app.presentation.ui.components.MTricolorDivider
 import com.streamvault.app.presentation.ui.theme.AppThemes
 import com.streamvault.app.presentation.ui.theme.Theme
 import com.streamvault.app.presentation.viewmodel.SettingsViewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,6 +41,11 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val currentTheme by viewModel.selectedTheme.collectAsState()
+    var showConnectDialog by remember { mutableStateOf(false) }
+    var cookieInput by remember { mutableStateOf("") }
+    var sapisidInput by remember { mutableStateOf("") }
+    val cookieIsConnected by viewModel.cookieStore.isConnected.collectAsState()
+    val scope = rememberCoroutineScope()
 
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -141,6 +147,12 @@ fun SettingsScreen(
                         onClick = { onNavigateToLogin() }
                     )
                 }
+                SettingsItem(
+                    title = "Connect YouTube account",
+                    subtitle = if (cookieIsConnected) "Connected" else "Paste cookies for personalized feed",
+                    icon = Icons.Default.Cookie,
+                    onClick = { showConnectDialog = true }
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -463,6 +475,58 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = { viewModel.dismissAboutDialog() }) {
                     Text("OK")
+                }
+            }
+        )
+    }
+
+    if (showConnectDialog) {
+        AlertDialog(
+            onDismissRequest = { showConnectDialog = false },
+            title = { Text("Connect YouTube Account") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Paste your YouTube cookies for a personalized feed. Get these from your browser's DevTools > Application > Cookies > youtube.com",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = cookieInput,
+                        onValueChange = { cookieInput = it },
+                        label = { Text("Cookie string") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3
+                    )
+                    OutlinedTextField(
+                        value = sapisidInput,
+                        onValueChange = { sapisidInput = it },
+                        label = { Text("SAPISID value") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (cookieInput.isNotBlank() && sapisidInput.isNotBlank()) {
+                            viewModel.connectCookies(cookieInput.trim(), sapisidInput.trim())
+                            showConnectDialog = false
+                            cookieInput = ""
+                            sapisidInput = ""
+                        }
+                    }
+                ) { Text("Connect") }
+            },
+            dismissButton = {
+                Row {
+                    if (cookieIsConnected) {
+                        TextButton(onClick = {
+                            viewModel.disconnectCookies()
+                            showConnectDialog = false
+                        }) { Text("Disconnect", color = MaterialTheme.colorScheme.error) }
+                    }
+                    TextButton(onClick = { showConnectDialog = false }) { Text("Cancel") }
                 }
             }
         )
