@@ -1723,6 +1723,15 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     )
                 ),
                 ClientSpec(
+                    name = "WEB_EMBEDDED",
+                    clientInfo = ClientInfo(
+                        clientName = "WEB_EMBEDDED_PLAYER",
+                        clientVersion = "2.20260708.00.00",
+                        userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+                    ),
+                    contextBuilder = { ci -> ClientContext(client = ci, thirdParty = ThirdPartyContext(embedUrl = "https://www.reddit.com/")) }
+                ),
+                ClientSpec(
                     name = "ANDROID",
                     clientInfo = ClientInfo(
                         clientName = "ANDROID",
