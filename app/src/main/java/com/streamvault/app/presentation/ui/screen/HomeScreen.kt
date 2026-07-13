@@ -5,10 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,6 +44,7 @@ import com.streamvault.app.presentation.ui.components.LoadingIndicator
 import com.streamvault.app.presentation.ui.components.MTricolorDivider
 import com.streamvault.app.presentation.ui.components.BrandRingAvatar
 import com.streamvault.app.presentation.ui.components.TopBarGradientOverlay
+import com.streamvault.app.presentation.ui.components.MagazineFeed
 import com.streamvault.app.presentation.ui.components.VideoCard
 import com.streamvault.app.presentation.viewmodel.HomeViewModel
 
@@ -63,7 +63,7 @@ fun HomeScreen(
     val uiState by viewModel.uiState.collectAsState()
     val authState by authManager.authState.collectAsState()
     val userProfile by authManager.userProfile.collectAsState()
-    val listState = rememberLazyListState()
+    val gridState = rememberLazyGridState()
     val context = LocalContext.current
 
     val isCastConnected by castSessionManager.isConnected.collectAsState()
@@ -72,10 +72,10 @@ fun HomeScreen(
     var showCastDialog by remember { mutableStateOf(false) }
 
     // Load more when scrolling to bottom
-    LaunchedEffect(listState) {
+    LaunchedEffect(gridState) {
         snapshotFlow {
-            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            val totalItems = listState.layoutInfo.totalItemsCount
+            val lastVisibleItem = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val totalItems = gridState.layoutInfo.totalItemsCount
             lastVisibleItem >= totalItems - 3
         }.collect { shouldLoadMore ->
             if (shouldLoadMore && !uiState.isLoading) {
@@ -206,200 +206,14 @@ fun HomeScreen(
                 }
             }
             else -> {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(
-                        items = uiState.feedItems,
-                        key = { it.id }
-                    ) { feedItem ->
-                        when (feedItem) {
-                            is FeedItem.Video -> {
-                                VideoCard(
-                                    video = feedItem.video,
-                                    onClick = { onVideoClick(feedItem.video.id) },
-                                    onSaveToWatchLater = { video -> viewModel.addToWatchLater(video) },
-                                    onShare = { video ->
-                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, video.watchUrl)
-                                        }
-                                        context.startActivity(Intent.createChooser(shareIntent, "Share via"))
-                                    }
-                                )
-                                // Subtle divider between videos
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(
-                                        horizontal = 16.dp,
-                                        vertical = 2.dp
-                                    ),
-                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                                    thickness = 0.5.dp
-                                )
-                            }
-                            is FeedItem.Playlist -> {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onPlaylistClick(feedItem.playlist.id) }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainer
-                                    ),
-                                    shape = RoundedCornerShape(14.dp),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(10.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(100.dp, 56.dp)
-                                                .clip(RoundedCornerShape(6.dp))
-                                        ) {
-                                            AsyncImage(
-                                                model = feedItem.playlist.thumbnailUrl,
-                                                contentDescription = feedItem.playlist.title,
-                                                modifier = Modifier.fillMaxSize(),
-                                                contentScale = ContentScale.Crop
-                                            )
-                                            Surface(
-                                                modifier = Modifier.align(Alignment.Center),
-                                                color = Color.Black.copy(alpha = 0.7f),
-                                                shape = RoundedCornerShape(4.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.PlaylistPlay,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.padding(4.dp),
-                                                    tint = Color.White
-                                                )
-                                            }
-                                        }
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(3.dp)
-                                        ) {
-                                            Text(
-                                                text = feedItem.playlist.title,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = "${feedItem.playlist.videoCount} videos · ${feedItem.playlist.channelName}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            is FeedItem.Channel -> {
-                                Card(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onChannelClick(feedItem.channel.id) }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainer
-                                    ),
-                                    shape = RoundedCornerShape(14.dp),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        BrandRingAvatar(
-                                            model = feedItem.channel.avatarUrl,
-                                            contentDescription = feedItem.channel.name,
-                                            size = 44.dp,
-                                            ringWidth = 2.5.dp,
-                                            onClick = { onChannelClick(feedItem.channel.id) }
-                                        )
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(3.dp)
-                                        ) {
-                                            Text(
-                                                text = feedItem.channel.name,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            Text(
-                                                text = "${feedItem.channel.subscriberCount} subscribers",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            is FeedItem.CarouselItem -> {
-                                LazyRow(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp)
-                                ) {
-                                    items(
-                                        items = feedItem.items,
-                                        key = { it.id }
-                                    ) { video ->
-                                        VideoCard(
-                                            video = video,
-                                            onClick = { onVideoClick(video.id) },
-                                            modifier = Modifier.width(280.dp),
-                                            onSaveToWatchLater = { v -> viewModel.addToWatchLater(v) },
-                                            onShare = { v ->
-                                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                                    type = "text/plain"
-                                                    putExtra(Intent.EXTRA_TEXT, v.watchUrl)
-                                                }
-                                                context.startActivity(Intent.createChooser(shareIntent, "Share via"))
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Loading more indicator
-                    if (uiState.isLoading) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(20.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    strokeWidth = 2.dp
-                                )
-                            }
-                        }
-                    }
-                }
+                MagazineFeed(
+                    feedItems = uiState.feedItems,
+                    onVideoClick = onVideoClick,
+                    onChannelClick = onChannelClick,
+                    onPlaylistClick = onPlaylistClick,
+                    modifier = Modifier.fillMaxSize(),
+                    gridState = gridState
+                )
             }
         }
     }
