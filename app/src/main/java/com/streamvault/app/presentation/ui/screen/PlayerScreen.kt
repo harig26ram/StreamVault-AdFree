@@ -50,6 +50,7 @@ import coil.compose.AsyncImage
 import com.streamvault.app.R
 import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.model.VideoFormat
+import com.streamvault.app.presentation.ui.components.CollapsiblePanel
 import com.streamvault.app.presentation.ui.components.MiniPlayer
 import com.streamvault.app.presentation.viewmodel.PlayerViewModel
 import com.streamvault.app.presentation.viewmodel.RepeatMode
@@ -863,6 +864,149 @@ fun PlayerScreen(
                     }
                 }
 
+                }
+
+                item(key = "download_panel") {
+                    CollapsiblePanel(
+                        title = "Download",
+                        defaultExpanded = true,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = when {
+                                            uiState.isDownloaded -> "Downloaded"
+                                            uiState.isDownloading -> "Downloading ${uiState.downloadProgress}%"
+                                            uiState.isPaused -> "Paused"
+                                            else -> "Ready to download"
+                                        },
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (uiState.isDownloading || uiState.isPaused) {
+                                        Text(
+                                            text = "Tap to ${if (uiState.isPaused) "resume" else "pause"}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Button(
+                                    onClick = {
+                                        when {
+                                            uiState.isDownloaded -> {
+                                                viewModel.deleteDownload()
+                                            }
+                                            uiState.isPaused -> {
+                                                viewModel.startDownload()
+                                            }
+                                            uiState.isDownloading -> {
+                                                viewModel.pauseDownload()
+                                            }
+                                            else -> {
+                                                viewModel.startDownload()
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = when {
+                                            uiState.isDownloaded -> MaterialTheme.colorScheme.error
+                                            else -> MaterialTheme.colorScheme.primary
+                                        }
+                                    ),
+                                    shape = RoundedCornerShape(20.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(
+                                        text = when {
+                                            uiState.isDownloaded -> "Delete"
+                                            uiState.isPaused -> "Resume"
+                                            uiState.isDownloading -> "Pause"
+                                            else -> "Download"
+                                        },
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                            if (uiState.isDownloading) {
+                                LinearProgressIndicator(
+                                    progress = { uiState.downloadProgress / 100f },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp)),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item(key = "equalizer_panel") {
+                    CollapsiblePanel(
+                        title = "Equalizer",
+                        defaultExpanded = false,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = if (uiState.equalizerEnabled) "Equalizer Active" else "Equalizer Off",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Customize audio output",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Button(
+                                onClick = onEqualizerClick,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (uiState.equalizerEnabled) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                ),
+                                shape = RoundedCornerShape(20.dp),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Equalizer,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = if (uiState.equalizerEnabled) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (uiState.equalizerEnabled) "Open" else "Enable",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (uiState.equalizerEnabled) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
 
                 if (uiState.chapters.size >= 2) {
