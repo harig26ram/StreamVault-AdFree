@@ -25,6 +25,7 @@ class StreamVaultApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        com.streamvault.app.util.CrashLogger.install(this)
         com.streamvault.app.notification.NotificationHelper.createNotificationChannels(this)
         com.streamvault.app.notification.NotificationHelper.scheduleSubscriptionCheck(this)
         CoroutineScope(Dispatchers.IO).launch {

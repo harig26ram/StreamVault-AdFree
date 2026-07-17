@@ -25,7 +25,8 @@ enum class StreamType { PROGRESSIVE, VIDEO_ONLY, AUDIO_ONLY }
 
 class StreamUrlExtractor(
     private val cipherDecryptor: CipherDecryptor = CipherDecryptor(),
-    private val nParamDecryptor: NParamDecryptor = NParamDecryptor()
+    private val nParamDecryptor: NParamDecryptor = NParamDecryptor(),
+    private val jsNTransformer: JsNTransformer? = null
 ) {
 
     fun extract(
@@ -217,15 +218,56 @@ class StreamUrlExtractor(
     }
 
     private fun resolveNParam(url: String, nTransformOp: NParamDecryptor.NTransformOp?): String {
-        if (nTransformOp == null) return url
-        val uri = java.net.URI(url)
-        val query = uri.query ?: return url
-        val params = parseQueryString(query)
-        val nParam = params["n"] ?: return url
-        if (nParam.isBlank()) return url
+        // Prefer the WebView JS evaluator — modern YouTube's `n`-throttle is an
+        // obfuscated JS class (g.RY / dz) that regex swap-pair extraction cannot
+        // replicate. Fall back to the regex path only when JS eval is unavailable.
+        if (jsNTransformer != null) {
+            return jsNTransformer.transformUrl(url) ?: resolveNParamRegex(url, nTransformOp)
+        }
+        return resolveNParamRegex(url, nTransformOp)
+    }
 
-        val transformed = nParamDecryptor.decryptNParamDirect(nParam, nTransformOp)
-        return url.replace("n=$nParam", "n=$transformed")
+    private fun findQueryParamIndex(url: String, param: String): Int? {
+        val marker = "$param="
+        var start = 0
+        while (start < url.length) {
+            val idx = url.indexOf(marker, start)
+            if (idx < 0) return null
+            if (idx == 0 || url[idx - 1] == '?' || url[idx - 1] == '&') {
+                return idx
+            }
+            start = idx + marker.length
+        }
+        return null
+    }
+
+    private fun resolveNParamRegex(url: String, nTransformOp: NParamDecryptor.NTransformOp?): String {
+        if (nTransformOp == null) return url
+        val idx = findQueryParamIndex(url, "n") ?: return url
+        val valueStart = idx + "n=".length
+        var valueEnd = url.indexOf('&', valueStart)
+        if (valueEnd < 0) valueEnd = url.length
+        val rawN = url.substring(valueStart, valueEnd)
+        if (rawN.isBlank()) return url
+
+        val decoded = java.net.URLDecoder.decode(rawN, "UTF-8")
+        val transformed = nParamDecryptor.decryptNParamDirect(decoded, nTransformOp)
+        val encoded = java.net.URLEncoder.encode(transformed, "UTF-8")
+        android.util.Log.d(
+            "StreamUrlExtractor",
+            "resolveNParam: transformed n (${rawN.length}->${encoded.length} chars)"
+        )
+        return url.substring(0, valueStart) + encoded + url.substring(valueEnd)
+    }
+
+    /**
+     * Deciphers the throttling `n` parameter (and any cipher) of an already
+     * resolved stream URL. Required for clients (e.g. IOS, TVHTML5) that return
+     * formats with a *direct* `url` still carrying the encrypted `n` param —
+     * without this YouTube rejects the stream fetch with HTTP 403.
+     */
+    fun decryptUrl(url: String, nTransformOp: NParamDecryptor.NTransformOp?): String {
+        return resolveNParam(url, nTransformOp)
     }
 
     private fun parseQueryString(query: String): Map<String, String> {

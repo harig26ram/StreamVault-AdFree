@@ -317,8 +317,24 @@ fun SettingsScreen(
                                         "Share debug log"
                                     )
                                 )
-                            } catch (e: Exception) {
+                            } catch (_: Exception) {
                             }
+                        }
+                    }
+                )
+                SettingsItem(
+                    title = "Share crash logs",
+                    subtitle = "Share crash reports + player/PO token logs",
+                    icon = Icons.Default.Error,
+                    onClick = {
+                        try {
+                            val intent = DebugLogExporter.shareAllLogs(context)
+                            if (intent != null) {
+                                context.startActivity(
+                                    Intent.createChooser(intent, "Share crash logs")
+                                )
+                            }
+                        } catch (_: Exception) {
                         }
                     }
                 )

@@ -84,6 +84,13 @@ object NetworkModule {
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .header("Content-Type", "application/json")
 
+            if (url.encodedPath.startsWith("/youtubei/v1/")) {
+                builder.header("Origin", "https://www.youtube.com")
+                builder.header("X-YouTube-Client-Name", "1")
+                builder.header("X-YouTube-Client-Version", "2.20260623.01.00")
+                builder.header("Referer", "https://www.youtube.com/")
+            }
+
             var useCookieAuth = false
             if (cookieStore.isConnected.value && (url.encodedPath.startsWith("/youtubei/v1/browse") || url.encodedPath.startsWith("/youtubei/v1/player"))) {
                 val cookies = cookieStore.getCookies()

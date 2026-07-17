@@ -643,7 +643,7 @@ fun PlayerScreen(
                             .background(Color.Black.copy(alpha = 0.85f))
                             .clickable {
                                 playerError = null
-                                uiState.video?.let { viewModel.loadVideo(it.id) }
+                                viewModel.retryPlayback()
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -670,6 +670,33 @@ fun PlayerScreen(
                                 fontWeight = FontWeight.Medium
                             )
                         }
+                    }
+                }
+            }
+
+            if (uiState.isRecovering) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black.copy(alpha = 0.7f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(36.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 3.dp
+                        )
+                        Text(
+                            text = uiState.recoveryMessage ?: "Retrying...",
+                            color = Color.White.copy(alpha = 0.9f),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }

@@ -135,11 +135,10 @@ class CookieFeedRepositoryImpl @Inject constructor(
                 jsonToVideo(renderer)?.let { items.add(it) }
             }
 
-            // Rich item containing video
+            // Rich item containing video (recurse into content for any renderer type)
             obj.getAsJsonObject("richItemRenderer")
-                ?.getAsJsonObject("content")
-                ?.getAsJsonObject("videoRenderer")?.let { renderer ->
-                    jsonToVideo(renderer)?.let { items.add(it) }
+                ?.getAsJsonObject("content")?.let { content ->
+                    extractVideosRecursive(content, items)
                 }
 
             // Rich section renderer (YouTube 2024+ format)
@@ -155,6 +154,18 @@ class CookieFeedRepositoryImpl @Inject constructor(
                 ?.getAsJsonObject("content")
                 ?.getAsJsonObject("expandedShelfContentsRenderer")
                 ?.getAsJsonArray("items")?.forEach { shelfItem ->
+                    extractVideosRecursive(shelfItem.asJsonObject, items)
+                }
+
+            // Rich shelf renderer (YouTube 2024+ format inside richSectionRenderer)
+            obj.getAsJsonObject("richShelfRenderer")
+                ?.getAsJsonArray("contents")?.forEach { shelfItem ->
+                    extractVideosRecursive(shelfItem.asJsonObject, items)
+                }
+
+            // Playlist shelf renderer
+            obj.getAsJsonObject("playlistShelfRenderer")
+                ?.getAsJsonArray("contents")?.forEach { shelfItem ->
                     extractVideosRecursive(shelfItem.asJsonObject, items)
                 }
 

@@ -1,5 +1,6 @@
 package com.streamvault.app.data.repository
 
+import android.os.Build
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonArray
@@ -19,6 +20,7 @@ import com.streamvault.app.data.api.YouTubeApiService
 import com.streamvault.app.data.api.VideoDetails
 import com.streamvault.app.auth.CookieStore
 import com.streamvault.app.data.bootstrap.VisitorDataBootstrapper
+import com.streamvault.app.data.bootstrap.PoTokenProvider
 import com.streamvault.app.data.local.VideoDao
 import com.streamvault.player.youtube.CipherDecryptor
 import com.streamvault.player.youtube.NParamDecryptor
@@ -45,9 +47,13 @@ import com.streamvault.app.domain.model.Video
 import com.streamvault.app.domain.repository.VideoRepository
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import javax.inject.Inject
 
@@ -58,12 +64,15 @@ class VideoRepositoryImpl @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
     private val visitorDataBootstrapper: VisitorDataBootstrapper,
     private val cookieFeedRepository: CookieFeedRepository,
-    private val cookieStore: CookieStore
+    private val cookieStore: CookieStore,
+    private val poTokenProvider: PoTokenProvider,
+    private val jsNTransformer: com.streamvault.player.youtube.JsNTransformer
 ) : VideoRepository {
 
     private val streamUrlExtractor = StreamUrlExtractor(
         cipherDecryptor = CipherDecryptor(),
-        nParamDecryptor = NParamDecryptor()
+        nParamDecryptor = NParamDecryptor(),
+        jsNTransformer = jsNTransformer
     )
     private val playerJsFetcher = PlayerJsFetcher()
 
@@ -100,6 +109,7 @@ class VideoRepositoryImpl @Inject constructor(
                 }
             }
 
+            // Tier 1: Primary InnerTube browse (most reliable)
             Log.d(TAG, "Trying FEwhat_to_watch InnerTube browse")
             val browseResult = fetchBrowseFeed("FEwhat_to_watch")
             if (browseResult.items.isNotEmpty()) {
@@ -107,26 +117,65 @@ class VideoRepositoryImpl @Inject constructor(
                 return Result.success(HomeFeed(items = browseResult.items, continuationToken = browseResult.continuationToken))
             }
 
-            Log.d(TAG, "FEwhat_to_watch empty, trying homepage HTML scrape")
-            val htmlItems = fetchHomePageFeed()
-            if (htmlItems.isNotEmpty()) {
-                return Result.success(HomeFeed(items = htmlItems, continuationToken = null))
-            }
-
-            Log.d(TAG, "HTML scrape empty, using search API as home feed source with watch history")
-            val (searchItems, searchContinuation) = fetchSearchBasedHomeFeed()
-            if (searchItems.isNotEmpty()) {
-                return Result.success(HomeFeed(items = searchItems, continuationToken = searchContinuation))
-            }
-
-            Log.d(TAG, "Search feed empty, falling back to trending")
-            val trendingResult = getTrending()
-            if (trendingResult.isSuccess) {
-                val trending = trendingResult.getOrNull()
-                if (trending != null && trending.items.isNotEmpty()) {
-                    Log.d(TAG, "Trending fallback returned ${trending.items.size} items")
-                    return Result.success(trending)
+            // Tier 2+: Run remaining fallbacks in parallel to avoid sequential blocking
+            Log.d(TAG, "FEwhat_to_watch empty, running parallel fallbacks (HTML + Search + Trending)")
+            val fallbackResult = coroutineScope {
+                val htmlDeferred = async(Dispatchers.IO) {
+                    try {
+                        withTimeoutOrNull(8000L) {
+                            Log.d(TAG, "  Fallback: trying HTML scrape")
+                            val items = fetchHomePageFeed()
+                            if (items.isNotEmpty()) {
+                                Log.d(TAG, "  HTML scrape returned ${items.size} items")
+                                HomeFeed(items = items, continuationToken = null)
+                            } else null
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "  HTML fallback crashed: ${e.message}")
+                        null
+                    }
                 }
+                val searchDeferred = async(Dispatchers.IO) {
+                    try {
+                        withTimeoutOrNull(10000L) {
+                            Log.d(TAG, "  Fallback: trying search-based feed")
+                            val (items, contToken) = fetchSearchBasedHomeFeed()
+                            if (items.isNotEmpty()) {
+                                Log.d(TAG, "  Search feed returned ${items.size} items")
+                                HomeFeed(items = items, continuationToken = contToken)
+                            } else null
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "  Search fallback crashed: ${e.message}")
+                        null
+                    }
+                }
+                val trendingDeferred = async(Dispatchers.IO) {
+                    try {
+                        withTimeoutOrNull(8000L) {
+                            Log.d(TAG, "  Fallback: trying trending")
+                            val result = getTrending()
+                            if (result.isSuccess) {
+                                val trending = result.getOrNull()
+                                if (trending != null && trending.items.isNotEmpty()) {
+                                    Log.d(TAG, "  Trending returned ${trending.items.size} items")
+                                    trending
+                                } else null
+                            } else null
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "  Trending fallback crashed: ${e.message}")
+                        null
+                    }
+                }
+
+                // Return first successful result
+                val results = awaitAll(htmlDeferred, searchDeferred, trendingDeferred)
+                results.filterNotNull().firstOrNull()
+            }
+
+            if (fallbackResult != null) {
+                return Result.success(fallbackResult)
             }
 
             // Final fallback: return cached feed if available
@@ -595,6 +644,41 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
         return null
     }
 
+    private fun extractEmbeddedContinuationToken(root: JsonObject): String? {
+        try {
+            val contents = root.getAsJsonObject("contents")
+                ?.getAsJsonObject("twoColumnBrowseResultsRenderer")
+                ?.getAsJsonArray("tabs") ?: return null
+            for (tab in contents) {
+                val tabContent = tab.asJsonObject
+                    ?.getAsJsonObject("tabRenderer")
+                    ?.getAsJsonObject("content") ?: continue
+                val richGrid = tabContent.getAsJsonObject("richGridRenderer") ?: continue
+                val richContents = richGrid.getAsJsonArray("contents") ?: continue
+                for (item in richContents) {
+                    val itemObj = item.asJsonObject ?: continue
+                    // Check for continuationItemRenderer directly in richGrid contents
+                    val token = itemObj.getAsJsonObject("continuationItemRenderer")
+                        ?.getAsJsonObject("continuationEndpoint")
+                        ?.getAsJsonObject("continuationCommand")
+                        ?.get("token")?.asString
+                    if (token != null) return token
+                    // Check inside richSectionRenderer.content for continuation
+                    val rsContent = itemObj.getAsJsonObject("richSectionRenderer")
+                        ?.getAsJsonObject("content") ?: continue
+                    val rsToken = rsContent.getAsJsonObject("continuationItemRenderer")
+                        ?.getAsJsonObject("continuationEndpoint")
+                        ?.getAsJsonObject("continuationCommand")
+                        ?.get("token")?.asString
+                    if (rsToken != null) return rsToken
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "extractEmbeddedContinuationToken error: ${e.message}")
+        }
+        return null
+    }
+
     private fun parseBrowseResponse(rawBody: String): BrowseParseResult {
         val items = mutableListOf<FeedItem>()
         var continuationToken: String? = null
@@ -667,15 +751,9 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                         Log.d(TAG, "  tab[$i] richGrid contents=${richContents?.size()}")
                         richContents?.forEach { item ->
                             val itemObj = item.asJsonObject
-                            Log.d(TAG, "    richItem keys: ${itemObj.keySet()}")
-                            val ri = itemObj.getAsJsonObject("richItemRenderer")
-                            if (ri != null) {
-                                val riContent = ri.getAsJsonObject("content")
-                                Log.d(TAG, "      richItem content keys: ${riContent?.keySet()}")
-                                val vr = riContent?.getAsJsonObject("videoRenderer")
-                                if (vr != null) {
-                                    Log.d(TAG, "      VIDEO: ${vr.get("videoId")}")
-                                }
+                            Log.d(TAG, "    richGrid item keys: ${itemObj.keySet()}")
+                            itemObj.getAsJsonObject("richSectionRenderer")?.let { rsr ->
+                                Log.d(TAG, "      richSectionRenderer content keys: ${rsr.getAsJsonObject("content")?.keySet()}")
                             }
                             extractVideosFromJson(itemObj, items)
                         }
@@ -691,6 +769,13 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                 continuationToken = extractContinuationToken(root)
                 if (continuationToken != null) {
                     Log.d(TAG, "parseBrowse: found continuation token from onResponseReceivedActions")
+                }
+                // Also search richGridRenderer.contents for embedded continuation tokens
+                if (continuationToken == null) {
+                    continuationToken = extractEmbeddedContinuationToken(root)
+                    if (continuationToken != null) {
+                        Log.d(TAG, "parseBrowse: found embedded continuation token in richGridRenderer")
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -726,6 +811,16 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                             val itemObj = item.asJsonObject
                             Log.d(TAG, "    item keys: ${itemObj.keySet()}")
                             extractVideosFromJson(itemObj, items)
+                        }
+                    // Extract continuation token embedded in sectionList contents
+                    secObj.getAsJsonObject("continuationItemRenderer")
+                        ?.getAsJsonObject("continuationEndpoint")
+                        ?.getAsJsonObject("continuationCommand")
+                        ?.get("token")?.asString?.let { token ->
+                            if (continuationToken == null) {
+                                continuationToken = token
+                                Log.d(TAG, "Search: found continuation token in sectionList")
+                            }
                         }
                 }
             }
@@ -784,11 +879,10 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
             items.add(FeedItem.Video(jsonToVideo(renderer)))
         }
 
-        // Rich item containing video
+        // Rich item containing video (recurse into content for any renderer type)
         obj.getAsJsonObject("richItemRenderer")
-            ?.getAsJsonObject("content")
-            ?.getAsJsonObject("videoRenderer")?.let { renderer ->
-                items.add(FeedItem.Video(jsonToVideo(renderer)))
+            ?.getAsJsonObject("content")?.let { content ->
+                extractVideosFromJson(content, items)
             }
 
         // Element renderer (new YouTube format) - recursively search for video data
@@ -815,10 +909,45 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                 extractVideosFromJson(shelfItem.asJsonObject, items)
             }
 
-        // Continuation
-        obj.getAsJsonObject("continuationItemRenderer")?.let {
-            // Could extract continuation token here
-        }
+        // Rich shelf renderer (YouTube 2024+ format inside richSectionRenderer)
+        obj.getAsJsonObject("richShelfRenderer")
+            ?.getAsJsonArray("contents")?.forEach { shelfItem ->
+                extractVideosFromJson(shelfItem.asJsonObject, items)
+            }
+
+        // Playlist shelf renderer
+        obj.getAsJsonObject("playlistShelfRenderer")
+            ?.getAsJsonArray("contents")?.forEach { shelfItem ->
+                extractVideosFromJson(shelfItem.asJsonObject, items)
+            }
+
+        // Grid shelf view model (search results wrap gridVideoRenderer)
+        obj.getAsJsonObject("gridShelfViewModel")
+            ?.getAsJsonObject("gridShelfRenderer")
+            ?.getAsJsonArray("items")?.forEach { shelfItem ->
+                extractVideosFromJson(shelfItem.asJsonObject, items)
+            }
+
+        // Lockup view model (search shelf wrapper)
+        obj.getAsJsonObject("lockupViewModel")
+            ?.getAsJsonObject("lockupRenderer")
+            ?.let { lockup ->
+                // content may hold a gridShelfRenderer or directly a video renderer
+                extractVideosFromJson(lockup, items)
+                lockup.getAsJsonObject("content")?.let { content ->
+                    extractVideosFromJson(content, items)
+                }
+            }
+
+        // Continuation token embedded in any renderer tree
+        obj.getAsJsonObject("continuationItemRenderer")
+            ?.getAsJsonObject("continuationEndpoint")
+            ?.getAsJsonObject("continuationCommand")
+            ?.get("token")?.asString?.let { token ->
+                if (token.isNotBlank()) {
+                    Log.d(TAG, "extractVideosFromJson: found embedded continuation token")
+                }
+            }
     }
 
     private fun extractFromElementRenderer(elem: JsonObject, items: MutableList<FeedItem>) {
@@ -979,7 +1108,8 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
         client = com.streamvault.app.data.api.ClientInfo(
             clientName = "WEB",
             clientVersion = "2.20260623.01.00",
-            userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+            userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            originalUrl = "https://www.youtube.com/"
         )
     )
 
@@ -1541,7 +1671,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
         }
     }
 
-    private data class WatchPageData(val json: String?, val playerJsUrl: String?, val jsContent: String?)
+    private data class WatchPageData(val json: String?, val playerJsUrl: String?, val jsContent: String?, val poToken: String? = null)
 
     private suspend fun fetchWatchPageFormats(videoId: String): WatchPageData {
         return withContext(Dispatchers.IO) {
@@ -1554,6 +1684,13 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
 
                 val response = httpClient.newCall(request).execute()
                 val html = response.body?.string() ?: return@withContext WatchPageData(null, null, null)
+
+                val poToken = poTokenProvider.extractPoTokenFromHtml(html)
+                if (poToken != null) {
+                    Log.d(TAG, "Watch page: extracted PoToken=${poToken.take(20)}...")
+                } else {
+                    Log.d(TAG, "Watch page: no PoToken in HTML - attempting provider fetch")
+                }
 
                 val jsUrlPatterns = listOf(
                     Regex("/s/player/[a-f0-9]+/player_ias\\.vflset/[^\"]+"),
@@ -1619,6 +1756,9 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                             put("videoId", videoId)
                             put("contentCheckOk", true)
                             put("racyCheckOk", true)
+                            if (poToken != null) {
+                                put("serviceIntegrityToken", poToken)
+                            }
                         }
                         val apiRequest = okhttp3.Request.Builder()
                             .url("https://www.youtube.com/youtubei/v1/player?key=$apiKey")
@@ -1665,10 +1805,10 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     }
                 }
 
-                WatchPageData(jsonStr, playerJsUrl, jsContent)
+                WatchPageData(jsonStr, playerJsUrl, jsContent, poToken)
             } catch (e: Exception) {
                 Log.w(TAG, "Watch page fetch failed: ${e.message}")
-                WatchPageData(null, null, null)
+                WatchPageData(null, null, null, null)
             }
         }
     }
@@ -1676,8 +1816,56 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
     override suspend fun getVideoFormats(videoId: String): Result<List<com.streamvault.app.domain.model.VideoFormat>> {
         return try {
             val formats = mutableListOf<com.streamvault.app.domain.model.VideoFormat>()
-            val existingItags = mutableSetOf<Int>()
             var cipherSourceJson: String? = null
+
+            val visitorData = visitorDataBootstrapper.getCachedVisitorData()
+            val poTokens = try {
+                poTokenProvider.getTokens(videoId, visitorData ?: "")
+            } catch (e: Exception) {
+                Log.w(TAG, "getVideoFormats: PO token generation failed: ${e.message}")
+                null
+            }
+            if (poTokens != null) {
+                Log.d(TAG, "getVideoFormats: using PO tokens (player=${poTokens.playerRequestPoToken.take(20)}...)")
+            } else {
+                Log.d(TAG, "getVideoFormats: no PO tokens available")
+            }
+
+            // Parse cipher + n-transform operations ONCE up-front. The IOS/TVHTML5
+            // clients return formats with a *direct* `url` that still carries the
+            // throttling `n` parameter. That parameter MUST be deciphered or
+            // YouTube rejects the actual stream fetch with HTTP 403 (playback fails).
+            val watchPageData0 = fetchWatchPageFormats(videoId)
+            val cipherOps: List<CipherDecryptor.CipherOp>
+            val nTransformOp: NParamDecryptor.NTransformOp?
+            val jsContent = watchPageData0.jsContent
+            if (jsContent != null) {
+                Log.d(TAG, "getVideoFormats: parsing cipher/n ops from watch-page JS (${jsContent.length} chars)")
+                val decryptor = CipherDecryptor()
+                val parsed = decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.NAME_LOOKUP)
+                cipherOps = if (parsed.isNotEmpty()) parsed
+                    else decryptor.parseOperations(jsContent, CipherDecryptor.OperationStrategy.FALLBACK)
+                nTransformOp = NParamDecryptor().parseNTransformCode(jsContent)
+                    ?: NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull()
+            } else {
+                Log.d(TAG, "getVideoFormats: no watch-page JS, using hardcoded fallback ops")
+                cipherOps = CipherDecryptor.KNOWN_FALLBACK_PATTERNS["reverse_splice2"] ?: emptyList()
+                nTransformOp = NParamDecryptor.KNOWN_ALGORITHMS.firstOrNull()
+            }
+            Log.d(TAG, "getVideoFormats: cipherOps=${cipherOps.size}, nTransformOp=${nTransformOp != null}")
+
+            // Load the player JS into the WebView so the modern obfuscated
+            // `n`-throttle transform (g.RY / dz) can be evaluated correctly.
+            // Regex-based NParamDecryptor is obsolete against current base.js.
+            val jsContent0 = watchPageData0.jsContent
+            if (jsContent0 != null) {
+                try {
+                    jsNTransformer.prepare(jsContent0)
+                    Log.d(TAG, "getVideoFormats: JsNTransformer prepared with player JS")
+                } catch (e: Exception) {
+                    Log.w(TAG, "getVideoFormats: JsNTransformer prepare failed: ${e.message}")
+                }
+            }
 
             data class ClientSpec(
                 val name: String,
@@ -1686,6 +1874,16 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
             )
 
             val clientChain = listOf(
+                ClientSpec(
+                    name = "WEB",
+                    clientInfo = ClientInfo(
+                        clientName = "WEB",
+                        clientVersion = "2.20260708.00.00",
+                        userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+                        hl = "en",
+                        gl = java.util.Locale.getDefault().country.ifEmpty { "US" }
+                    )
+                ),
                 ClientSpec(
                     name = "ANDROID_VR",
                     clientInfo = ClientInfo(
@@ -1737,7 +1935,8 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                         clientName = "WEB_SAFARI",
                         clientVersion = "2.20260708.00.00",
                         userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
-                        platform = "DESKTOP"
+                        osName = "Mac OS X",
+                        osVersion = "10.15.7"
                     )
                 ),
                 ClientSpec(
@@ -1745,11 +1944,14 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     clientInfo = ClientInfo(
                         clientName = "ANDROID",
                         clientVersion = "21.26.364",
-                        androidSdkVersion = 30,
+                        androidSdkVersion = Build.VERSION.SDK_INT,
                         platform = "MOBILE",
-                        userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android 11) gzip",
+                        gl = java.util.Locale.getDefault().country.ifEmpty { "US" },
+                        userAgent = "com.google.android.youtube/21.26.364 (Linux; U; Android ${Build.VERSION.RELEASE}; ${java.util.Locale.getDefault().language}_${java.util.Locale.getDefault().country}; ${Build.MODEL} Build/${Build.ID}) gzip",
                         osName = "Android",
-                        osVersion = "11"
+                        osVersion = Build.VERSION.RELEASE,
+                        deviceMake = Build.MANUFACTURER,
+                        deviceModel = Build.MODEL
                     )
                 )
             )
@@ -1765,7 +1967,8 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     )
                     val request = PlayerRequest(
                         context = spec.contextBuilder(spec.clientInfo).copy(playbackContext = playbackCtx),
-                        videoId = videoId
+                        videoId = videoId,
+                        serviceIntegrityToken = poTokens?.playerRequestPoToken
                     )
                     val response = apiService.player(spec.clientInfo.userAgent ?: "com.google.android.youtube/21.03.36 (Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip", request)
                     if (!response.isSuccessful) {
@@ -1781,9 +1984,14 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                         Log.d(TAG, "getVideoFormats: ${spec.name} returned cipher formats, saved as cipher source")
                     }
 
+                    val streamingPot = poTokens?.streamingPoToken
                     playerResponse?.streamingData?.formats?.forEach { fmt ->
-                        if (fmt.url != null && fmt.itag !in existingItags) {
-                            existingItags.add(fmt.itag ?: 0)
+                        if (fmt.url != null) {
+                            val rawUrl = jsNTransformer.transformUrl(fmt.url!!) ?: streamUrlExtractor.decryptUrl(fmt.url!!, nTransformOp)
+                            val finalUrl = if (streamingPot != null && rawUrl.isNotEmpty()) {
+                                val separator = if (rawUrl.contains("?")) "&" else "?"
+                                "$rawUrl${separator}pot=$streamingPot"
+                            } else rawUrl
                             val h = fmt.height ?: 0
                             val label = when {
                                 h >= 2160 -> "4K"
@@ -1797,24 +2005,26 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                                 h > 0 -> "${h}p"
                                 else -> fmt.quality ?: "unknown"
                             }
-                            formats.add(
-                                com.streamvault.app.domain.model.VideoFormat(
-                                    itag = fmt.itag ?: 0,
-                                    url = fmt.url,
-                                    mimeType = fmt.mimeType ?: "unknown",
-                                    bitrate = fmt.bitrate ?: 0,
-                                    width = fmt.width,
-                                    height = fmt.height,
-                                    qualityLabel = label,
-                                    isAdaptive = false
-                                )
-                            )
+                            mergeFormat(formats, com.streamvault.app.domain.model.VideoFormat(
+                                itag = fmt.itag ?: 0,
+                                url = finalUrl,
+                                mimeType = fmt.mimeType ?: "unknown",
+                                bitrate = fmt.bitrate ?: 0,
+                                width = fmt.width,
+                                height = fmt.height,
+                                qualityLabel = label,
+                                isAdaptive = false
+                            ))
                         }
                     }
 
                     playerResponse?.streamingData?.adaptiveFormats?.forEach { fmt ->
-                        if (fmt.url != null && fmt.itag !in existingItags) {
-                            existingItags.add(fmt.itag ?: 0)
+                        if (fmt.url != null) {
+                            val rawUrl = jsNTransformer.transformUrl(fmt.url!!) ?: streamUrlExtractor.decryptUrl(fmt.url!!, nTransformOp)
+                            val finalUrl = if (streamingPot != null && rawUrl.isNotEmpty()) {
+                                val separator = if (rawUrl.contains("?")) "&" else "?"
+                                "$rawUrl${separator}pot=$streamingPot"
+                            } else rawUrl
                             val h = fmt.height ?: 0
                             val label = when {
                                 h >= 2160 -> "4K"
@@ -1828,28 +2038,20 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                                 h > 0 -> "${h}p"
                                 else -> fmt.quality ?: "unknown"
                             }
-                            formats.add(
-                                com.streamvault.app.domain.model.VideoFormat(
-                                    itag = fmt.itag ?: 0,
-                                    url = fmt.url,
-                                    mimeType = fmt.mimeType ?: "unknown",
-                                    bitrate = fmt.bitrate ?: 0,
-                                    width = fmt.width,
-                                    height = fmt.height,
-                                    qualityLabel = label,
-                                    isAdaptive = true
-                                )
-                            )
+                            mergeFormat(formats, com.streamvault.app.domain.model.VideoFormat(
+                                itag = fmt.itag ?: 0,
+                                url = finalUrl,
+                                mimeType = fmt.mimeType ?: "unknown",
+                                bitrate = fmt.bitrate ?: 0,
+                                width = fmt.width,
+                                height = fmt.height,
+                                qualityLabel = label,
+                                isAdaptive = true
+                            ))
                         }
                     }
 
                     Log.d(TAG, "getVideoFormats: ${spec.name} client gave ${formats.size} total formats")
-
-                    val maxHeight = formats.maxOfOrNull { it.height ?: 0 } ?: 0
-                    if (maxHeight >= 720) {
-                        Log.d(TAG, "getVideoFormats: ${spec.name} reached ${maxHeight}p, skipping remaining clients")
-                        break
-                    }
                 } catch (e: Exception) {
                     Log.w(TAG, "getVideoFormats: ${spec.name} client failed: ${e.message}")
                 }
@@ -1859,7 +2061,7 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
             Log.d(TAG, "getVideoFormats: best quality from clients: ${maxHeight}p (${formats.size} formats)")
             if (maxHeight < 720) {
                 Log.d(TAG, "getVideoFormats: best quality ${maxHeight}p < 720p, trying cipher decryption for higher qualities...")
-                val watchPageData = fetchWatchPageFormats(videoId)
+                val watchPageData = watchPageData0
                 val jsContent = watchPageData.jsContent
 
                 val cipherOps: List<CipherDecryptor.CipherOp>
@@ -1902,9 +2104,8 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                     val decryptedFormats = streamUrlExtractor.extract(cipherSource, cipherOps, nTransformOp)
                     Log.d(TAG, "getVideoFormats: decrypted ${decryptedFormats.size} ANDROID cipher formats")
                     for (decrypted in decryptedFormats) {
-                        if (decrypted.url.isNotEmpty() && decrypted.itag !in existingItags) {
-                            existingItags.add(decrypted.itag)
-                            formats.add(toVideoFormat(decrypted))
+                        if (decrypted.url.isNotEmpty()) {
+                            mergeFormat(formats, toVideoFormat(decrypted))
                         }
                     }
                 }
@@ -1918,9 +2119,8 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
                         val decryptedFormats = streamUrlExtractor.extract(watchPageJson, cipherOps, nTransformOp)
                         Log.d(TAG, "getVideoFormats: decrypted ${decryptedFormats.size} WEB cipher formats")
                         for (decrypted in decryptedFormats) {
-                            if (decrypted.url.isNotEmpty() && decrypted.itag !in existingItags) {
-                                existingItags.add(decrypted.itag)
-                                formats.add(toVideoFormat(decrypted))
+                            if (decrypted.url.isNotEmpty()) {
+                                mergeFormat(formats, toVideoFormat(decrypted))
                             }
                         }
                     }
@@ -1949,6 +2149,28 @@ private suspend fun loadHomeFeedContinuation(continuationToken: String): Result<
             qualityLabel = if (height != null && height > 0) "${height}p" else "unknown",
             isAdaptive = decrypted.type != com.streamvault.player.youtube.StreamType.PROGRESSIVE
         )
+    }
+
+    /**
+     * Merge a candidate format into the list, keeping the highest-quality variant per itag.
+     * Multiple InnerTube clients return the same itag at different bitrates/heights; we must
+     * keep the best one or the player will silently use a low-bitrate rendition.
+     */
+    private fun mergeFormat(formats: MutableList<com.streamvault.app.domain.model.VideoFormat>, candidate: com.streamvault.app.domain.model.VideoFormat) {
+        if (candidate.url.isBlank()) return
+        val idx = formats.indexOfFirst { it.itag == candidate.itag }
+        if (idx == -1) {
+            formats.add(candidate)
+            return
+        }
+        val existing = formats[idx]
+        val better = when {
+            (candidate.bitrate ?: 0) > (existing.bitrate ?: 0) -> true
+            (candidate.bitrate ?: 0) == (existing.bitrate ?: 0) ->
+                (candidate.height ?: 0) >= (existing.height ?: 0)
+            else -> false
+        }
+        if (better) formats[idx] = candidate
     }
 
     override suspend fun getCaptionTracks(videoId: String): Result<List<com.streamvault.app.domain.model.CaptionTrack>> {

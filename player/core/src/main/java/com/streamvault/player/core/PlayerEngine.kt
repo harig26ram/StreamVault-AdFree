@@ -74,6 +74,12 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig(), context: Context? 
                 "Chrome/120.0.0.0 Mobile Safari/537.36"
         )
         .setAllowCrossProtocolRedirects(true)
+        .setDefaultRequestProperties(
+            mapOf(
+                "Referer" to "https://www.youtube.com/",
+                "Origin" to "https://www.youtube.com"
+            )
+        )
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -99,7 +105,15 @@ class PlayerEngine(val config: PlayerConfig = PlayerConfig(), context: Context? 
 
         override fun onPlayerError(error: PlaybackException) {
             Log.e(TAG, "ExoPlayer error: ${error.message}", error)
-            _state.value = PlayerState.Error("Playback error: ${error.message}")
+            val is403 = error.message?.contains("403") == true ||
+                error.message?.contains("Forbidden") == true ||
+                error.cause?.message?.contains("403") == true
+            val errorMsg = if (is403) {
+                "Playback error (403 Forbidden)"
+            } else {
+                "Playback error: ${error.message}"
+            }
+            _state.value = PlayerState.Error(errorMsg, error)
         }
     }
 

@@ -15,6 +15,7 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Binder
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.streamvault.app.R
 import com.streamvault.player.core.PlayerEngine
@@ -114,6 +115,11 @@ class PlaybackService : Service() {
                     abandonAudioFocus()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
+                } else if (state is PlayerState.Error) {
+                    Log.w(TAG, "Playback error in background: ${state.message}")
+                    if (title.isNotEmpty()) {
+                        updateNotification(title, channelName)
+                    }
                 }
             }
         }
@@ -292,6 +298,7 @@ class PlaybackService : Service() {
     }
 
     companion object {
+        private const val TAG = "PlaybackService"
         const val CHANNEL_ID = "streamvault_playback"
         const val NOTIFICATION_ID = 1
         const val ACTION_PLAY = "com.streamvault.app.ACTION_PLAY"

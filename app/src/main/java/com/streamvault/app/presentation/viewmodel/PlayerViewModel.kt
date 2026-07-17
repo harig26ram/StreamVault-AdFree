@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import android.view.Surface
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -97,8 +100,10 @@ data class PlayerUiState(
     val isDownloading: Boolean = false,
     val isPaused: Boolean = false,
     val downloadProgress: Int = 0,
-      val isPlayingOffline: Boolean = false,
-      val chapters: List<Chapter> = emptyList()
+    val isPlayingOffline: Boolean = false,
+    val chapters: List<Chapter> = emptyList(),
+    val isRecovering: Boolean = false,
+    val recoveryMessage: String? = null
   )
 
 @HiltViewModel
@@ -125,6 +130,7 @@ class PlayerViewModel @Inject constructor(
     )
     val engine = PlayerEngine(engineConfig, context)
     private val sponsorBlockManager = SponsorBlockManager()
+    private val recoveryManager = PlaybackRecoveryManager()
 
     val sponsorBlockEnabled: Boolean get() = settingsManager.sponsorBlock
 
@@ -143,6 +149,23 @@ class PlayerViewModel @Inject constructor(
     private var pendingAudioUrl: String? = null
     private var pendingVideoUrl: String? = null
     private var pendingProgressiveUrl: String? = null
+
+    private val processLifecycleObserver = LifecycleEventObserver { _, event ->
+        if (event == Lifecycle.Event.ON_STOP) {
+            try {
+                val state = _uiState.value
+                val playing = state.playerState == PlayerState.Playing ||
+                    state.playerState == PlayerState.Buffering
+                if (playing && settingsManager.backgroundPlay &&
+                    !state.isPipMode && !miniPlayerManager.state.value.isActive
+                ) {
+                    startBackgroundService()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Lifecycle ON_STOP handler error: ${e.message}")
+            }
+        }
+    }
 
     companion object {
         private const val TAG = "PlayerVM"
@@ -168,6 +191,11 @@ class PlayerViewModel @Inject constructor(
     init {
         _uiState.update { it.copy(isMiniPlayerEnabled = settingsManager.miniPlayer) }
         collectEngineState()
+        try {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register lifecycle observer: ${e.message}")
+        }
         Log.d(TAG, "init: videoId=$videoId")
         if (videoId.isNotBlank()) {
             loadVideo(videoId)
@@ -179,6 +207,13 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             engine.state.collect { state ->
                 _uiState.update { it.copy(playerState = state) }
+
+                if (state is PlayerState.Error) {
+                    handlePlaybackError(state)
+                } else if (state == PlayerState.Playing || state == PlayerState.Buffering) {
+                    recoveryManager.reset()
+                    _uiState.update { it.copy(isRecovering = false, recoveryMessage = null) }
+                }
             }
         }
         viewModelScope.launch {
@@ -231,6 +266,7 @@ class PlayerViewModel @Inject constructor(
         loadVideoJob?.cancel()
         engine.stop()
         _currentVideoId.value = id
+        recoveryManager.reset()
 
         loadVideoJob = viewModelScope.launch {
             _uiState.update {
@@ -242,7 +278,9 @@ class PlayerViewModel @Inject constructor(
                     playerState = PlayerState.Idle,
                     position = 0,
                     duration = 0,
-                    isAudioOnly = false
+                    isAudioOnly = false,
+                    isRecovering = false,
+                    recoveryMessage = null
                 )
             }
 
@@ -520,6 +558,78 @@ class PlayerViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    private fun handlePlaybackError(error: PlayerState.Error) {
+        Log.d(TAG, "handlePlaybackError: ${error.message}")
+        val action = recoveryManager.handleError(error)
+
+        when (action) {
+            PlaybackRecoveryManager.RecoveryAction.RETRY_SAME_URL -> {
+                recoveryManager.scheduleRetry {
+                    val videoId = _currentVideoId.value
+                    val formats = _uiState.value.formats
+                    if (formats.isNotEmpty()) {
+                        loadBestStream(formats)
+                    } else {
+                        loadFormats(videoId)
+                    }
+                }
+            }
+            PlaybackRecoveryManager.RecoveryAction.REFETCH_FORMATS -> {
+                recoveryManager.scheduleRetry {
+                    loadFormats(_currentVideoId.value)
+                }
+            }
+            PlaybackRecoveryManager.RecoveryAction.ROTATE_CLIENT -> {
+                recoveryManager.scheduleRetry {
+                    loadFormats(_currentVideoId.value)
+                }
+            }
+            PlaybackRecoveryManager.RecoveryAction.DEGRADE_QUALITY -> {
+                recoveryManager.scheduleRetry {
+                    val formats = _uiState.value.formats
+                    if (formats.isNotEmpty()) {
+                        val videoFormats = formats.filter { it.isAdaptive && it.isVideo }
+                        val lowerQuality = videoFormats
+                            .filter { (it.height ?: 0) <= 480 }
+                            .maxByOrNull { it.height ?: 0 }
+                        if (lowerQuality != null) {
+                            val audio = formats.filter { it.isAdaptive && it.isAudio }
+                                .maxByOrNull { it.bitrate }
+                            if (audio != null) {
+                                engine.loadStreams(audio.url, lowerQuality.url)
+                                autoPlay()
+                            }
+                        } else {
+                            loadFormats(_currentVideoId.value)
+                        }
+                    }
+                }
+            }
+            PlaybackRecoveryManager.RecoveryAction.SHOW_ERROR -> {
+                _uiState.update {
+                    it.copy(
+                        error = error.message,
+                        isRecovering = false,
+                        recoveryMessage = null
+                    )
+                }
+            }
+        }
+
+        _uiState.update {
+            it.copy(
+                isRecovering = recoveryManager.state.value.isRecovering,
+                recoveryMessage = recoveryManager.state.value.recoveryMessage
+            )
+        }
+    }
+
+    fun retryPlayback() {
+        recoveryManager.reset()
+        _uiState.update { it.copy(error = null, isRecovering = false, recoveryMessage = null) }
+        loadVideo(_currentVideoId.value)
     }
 
     private fun autoPlay() {
@@ -965,6 +1075,9 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        try {
+            ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
+        } catch (_: Exception) {}
         if (miniPlayerManager.state.value.isActive) {
             // Mini player is active, don't release engine
             return

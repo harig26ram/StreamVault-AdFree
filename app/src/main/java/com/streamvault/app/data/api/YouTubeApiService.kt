@@ -69,7 +69,8 @@ data class PlayerRequest(
     val videoId: String,
     val params: String? = null,
     val contentCheckOk: Boolean = true,
-    val racyCheckOk: Boolean = true
+    val racyCheckOk: Boolean = true,
+    val serviceIntegrityToken: String? = null
 )
 
 data class PlaybackContext(
@@ -115,7 +116,10 @@ data class ClientInfo(
     val osVersion: String? = null,
     val visitorData: String? = null,
     val deviceMake: String? = null,
-    val deviceModel: String? = null
+    val deviceModel: String? = null,
+    val originalUrl: String? = null,
+    val timeZone: String = "UTC",
+    val utcOffsetMinutes: Int = 0
 )
 
 data class UserContext(
@@ -245,7 +249,8 @@ data class Format(
     val audioSampleRate: String?,
     val audioChannels: Int?,
     val signatureCipher: String?,
-    val cipher: String?
+    val cipher: String?,
+    val serverAbrStreamingUrl: String?
 )
 
 data class Range(
