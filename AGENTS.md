@@ -1,12 +1,12 @@
-﻿# FreedomPlay â€” StreamVault-AdFree
+﻿# FreedomPlay
 
-Ad-free YouTube streaming Android app. Scrapes YouTube InnerTube API directly. Custom MediaCodec player, SponsorBlock, Material 3 AMOLED UI.
+Ad-free YouTube streaming Android app. Uses Piped/Invidious APIs for video streams. Media3 ExoPlayer, Material 3 AMOLED UI.
 
 ## Quick Reference
 
-- **Package**: `com.streamvault.app`
+- **Package**: `com.freedomplay.app`
 - **Min SDK**: 24 (Android 7.0) | **Target SDK**: 36 (Android 16)
-- **Version**: 4.0.0 (versionCode 4)
+- **Version**: 1.0.0 (versionCode 8)
 - **Branch**: `dev`
 
 ## Build
@@ -14,8 +14,6 @@ Ad-free YouTube streaming Android app. Scrapes YouTube InnerTube API directly. C
 ```bash
 .\gradlew.bat assembleDebug          # Debug APK
 .\gradlew.bat assembleRelease        # Release (needs signing config)
-.\gradlew.bat testDebugUnitTest      # Unit tests (192 tests)
-.\gradlew.bat lintDebug              # Lint
 ```
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`
@@ -23,158 +21,91 @@ APK: `app/build/outputs/apk/debug/app-debug.apk`
 ## Tech Stack
 
 - **UI**: Jetpack Compose, Material 3, Navigation Compose
-- **Architecture**: MVVM, Clean Architecture (data/domain/presentation)
+- **Architecture**: MVVM (ViewModel + UseCase)
 - **DI**: Hilt (Dagger 2.50)
-- **DB**: Room 2.6.1 (version 4, MIGRATION_3_4)
-- **Network**: Retrofit 2.9.0 + OkHttp 4.12.0, Gson
-- **Player**: Custom MediaCodec pipeline (4 modules under `player/`)
-- **Auth**: Google Sign-In with auto token refresh + silent sign-in
+- **DB**: Room 2.6.1 (version 1) — DownloadEntity, PlaylistEntity, PlaylistVideoEntity
+- **Network**: Retrofit 2.9.0 + OkHttp 4.12.0 (41x retry interceptor), Gson
+- **Player**: Media3 ExoPlayer 1.3.1
+- **APIs**: Piped (9 endpoints) + Invidious fallback
 - **Images**: Coil 2.5.0
+- **Downloads**: WorkManager + MediaMuxer
 
 ## Project Structure
 
 ```
-app/src/main/java/com/streamvault/app/
-  auth/              â€” AuthManager (token refresh, silent sign-in, session persistence)
+app/src/main/java/com/freedomplay/app/
+  FreedomPlayApplication.kt        — Application class, Hilt entry point
+  MainActivity.kt                   — Single activity, NavGraph entry, notification permission
+  di/
+    AppModule.kt                    — OkHttpClient, Gson, DataStore, NotificationManager providers
+    NetworkModule.kt                — Retrofit (41x retry), PipedApiService, InvidiousApiService
+    DatabaseModule.kt               — Room DB provider
   data/
-    api/             â€” YouTubeApiService, InnerTube DTOs
-    local/           â€” Room DAO (version 4), entities (watch_history, subscriptions, watch_later)
-    model/           â€” InnerTube JSON models
-    repository/      â€” VideoRepositoryImpl (personalized feed, fallback chain)
-  di/                â€” Hilt modules (NetworkModule w/ 401 interceptor, DatabaseModule w/ MIGRATION_3_4)
+    api/piped/
+      PipedApiService.kt            — 9 endpoints: /streams, /trending, /search, /suggestions, etc.
+      PipedDtos.kt                  — StreamItem, Stream, StreamFormat, Subtitle DTOs
+    api/invidious/
+      InvidiousApiService.kt        — Invidious fallback endpoints
+    local/db/
+      FreedomPlayDatabase.kt        — Room v1: DownloadEntity, PlaylistEntity, PlaylistVideoEntity
+      DownloadDao.kt                — CRUD for downloads
+      PlaylistDao.kt                — CRUD for playlists
+      DownloadEntity.kt             — video_id PK, title, channelName, thumbnailUrl, filePath, fileSize, quality, downloadStatus, progress, downloadedAt
+      PlaylistEntity.kt             — id, name, createdAt
+      PlaylistVideoEntity.kt        — id, playlistId, videoId, addedAt
+    repository/
+      StreamRepository.kt           — Piped primary, Invidious fallback
+    model/
+      StreamItem.kt                 — Feed/search results (id, title, uploaderName, thumbnailUrl, views, duration)
   domain/
-    model/           â€” Video, Channel, FeedItem, SearchResult
-    repository/      â€” VideoRepository interface
-    usecase/         â€” GetHomeFeedUseCase, SearchUseCase, GetPlayerUseCase
+    model/
+      Stream.kt                     — Full video details (title, videoStreams, audioStreams, subtitles, relatedStreams)
+      StreamFormat.kt               — Stream URL + quality + mimeType
+      StreamItem.kt                 — Feed/search result model
+      Subtitle.kt                   — Subtitle track metadata
   presentation/
-    MainActivity.kt  â€” Single activity, FreedomPlayTheme
-    navigation/      â€” NavGraph.kt, Screen.kt (Home, Trending, Search, Subscriptions, Library, Settings)
-    ui/components/   â€” BottomNavBar, VideoCard, LoadingIndicator, MiniPlayer
-    ui/screen/       â€” HomeScreen, TrendingScreen, SearchScreen, PlayerScreen, SubscriptionsScreen, etc.
-    ui/theme/        â€” Theme.kt (AmoledColorScheme, DarkColorScheme, LightColorScheme)
-    viewmodel/       â€” HomeViewModel, TrendingViewModel, SearchViewModel, PlayerViewModel, etc.
-  service/           â€” PlaybackService (background playback w/ audio focus)
-  notification/      â€” NotificationHelper, SubscriptionCheckWorker
-  data/download/     â€” DownloadManager, DownloadWorker
-  data/cast/         â€” CastSessionManager, CastPlayer, CastDialog, CastOptionsProvider
-  util/              â€” TimeUtils, UrlUtils
-
-player/core/         â€” PlayerEngine, DecoderThread, AudioTrackBufferProvider, PlaybackClock, EqualizerManager, EqualizerManagerHolder
-player/youtube/      â€” StreamUrlExtractor, CipherDecryptor, NParamDecryptor, PlayerJsFetcher
-player/ui/           â€” PlayerView composable, MiniPlayer, GestureOverlay, QueueBottomSheet
-player/sponsorblock/ â€” SponsorBlock integration
+    ui/
+      theme/
+        Theme.kt                    — AmoledColorScheme, DarkColorScheme, LightColorScheme (ThemeType enum)
+      navigation/
+        NavGraph.kt                 — Routes: Home, Search, Player/{videoId}, Library, Settings
+        Screen.kt                   — Screen sealed class
+      components/
+        BottomNavBar.kt             — Bottom navigation with Home/Search/Library/Settings tabs
+        VideoCard.kt                — Video list item with thumbnail, title, channel, views, duration
+        MiniPlayer.kt               — Floating mini player overlay
+      screens/
+        home/HomeScreen.kt          — Home feed (trending/search), pull-to-refresh, shimmer loading
+        search/SearchScreen.kt      — Search bar + suggestions + results
+        player/PlayerScreen.kt      — ExoPlayer, quality selector, PiP, fullscreen, share/download
+        library/LibraryScreen.kt    — Downloads, playlists, watch history
+        settings/SettingsScreen.kt  — Theme, audio, playback, download, account settings
+    viewmodel/
+      HomeViewModel.kt              — Trending feed, search-based recommendations
+      SearchViewModel.kt            — Search query + results + suggestions
+      PlayerViewModel.kt            — Video stream loading, quality selection
+      LibraryViewModel.kt           — Downloads list management
+  download/
+    DownloadManager.kt              — WorkManager orchestration: start/pause/cancel downloads
+    DownloadWorker.kt               — @HiltWorker: HTTP download + MediaMuxer mux, progress notifications
+  util/
+    TimeUtils.kt                    — Duration/relative time formatting
+    UrlUtils.kt                     — YouTube URL parsing, video ID extraction
 ```
 
-## Bug Fixes (all resolved)
+## Settings
 
-### Bug 1: Hardcoded "StreamVault" âœ… FIXED
-- `HomeScreen.kt:77` â€” `stringResource(R.string.app_name)`
-- `SettingsScreen.kt:198` â€” `stringResource(R.string.app_name)`
-- `SettingsScreen.kt:311` â€” `stringResource(R.string.app_name)`
-
-### Bug 2: Search 401 â€” visitorData desync âœ… FIXED
-- `VisitorDataBootstrapper.kt` â€” Removed `_bootstrapAttempted` one-shot guard
-- `VideoRepositoryImpl.kt` â€” 4 methods now fall back to `NetworkModule.visitorData` when `cachedVisitorData` is null
-- `fetchSearchBasedHomeFeed()` â€” Now injects visitorData into SearchRequest context
-
-### Bug 3: Icon â€” anime cat vector âœ… FIXED
-- `drawable/ic_launcher_foreground.xml` â€” Anime cat vector (108dp)
-- `drawable/ic_launcher_background.xml` â€” Pink-purple gradient with stars
-- `drawable/ic_launcher.xml` â€” 48dp standalone version
-- `AndroidManifest.xml` â€” Changed `@drawable` â†’ `@mipmap` references
-
-## Features Implemented
-
-### Auth (Wave 1 â€” Agent A)
-- **Token expiry tracking**: `KEY_TOKEN_EXPIRY` stored in SharedPreferences
-- **Session validation**: `restoreSession()` checks expiry, attempts refresh
-- **Silent sign-in**: `googleSignInClient.silentSignIn()` on app start
-- **Refresh with lock**: `synchronized(refreshLock)` prevents token refresh stampede
-- **Revoke on sign-out**: `revokeAccess()` before `signOut()`
-- **401 interceptor**: OkHttp interceptor catches 401, refreshes token, retries request
-
-### Feed (Wave 1 â€” Agent B + Wave 2A)
-- **Personalized home feed**: `FEwhat_to_watch` browse endpoint (authenticated) â†’ HTML scrape â†’ search fallback
-- **Search history topics**: Reads from SharedPreferences, uses as search fallback topics
-- **Watch history integration**: Extracts channel IDs + keywords from Room DB, seeds related searches
-- **Subscriptions feed**: InnerTube `FEsubscriptions` API â†’ video feed above channel list
-- **Trending screen**: New screen with category tabs (All/Music/Gaming/Movies), shimmer loading
-- **Infinite scroll**: Continuation token support for paginated loads
-
-### Premium Features (Wave 1 â€” Agent C)
-- **Background playback**: PlaybackService with audio focus handling, foreground notification
-- **PiP mode**: Enter/exit PiP, lifecycle polling, resume dialog
-- **Mini player**: Floating overlay with thumbnail, progress bar, queue button, slide-up gesture
-- **Queue management**: Add/remove/reorder/shuffle, repeat modes (OFF/ONE/ALL), drag-reorder UI
-- **Equalizer**: EqualizerManager (Equalizer, BassBoost, Virtualizer), persistent settings
-- **Skip silence**: Position-stall heuristic (500ms stall â†’ seek forward 1s)
-- **Remember position**: Room `last_position_ms` column, resume dialog on reopen
-
-### UI Polish (Wave 2B)
-- **Shimmer loading**: Animated gradient placeholders on TrendingScreen
-- **Horizontal channel row**: Subscription avatars with pink ring indicators
-- **Queue bottom sheet**: Drag handle, prominent shuffle/repeat, current track indicator
-- **Gradient headers**: Subtle primary-colored gradient behind TopAppBars
-- **Mini player**: Progress bar, queue button, slide-up gesture
-
-### Downloads (Wave 3A)
-- **DownloadManager**: WorkManager orchestration â€” start/pause/cancel/delete per video
-- **DownloadWorker**: @HiltWorker, downloads audio+video via HttpURLConnection, muxes with MediaMuxer, progress notifications
-- **DownloadEntity**: Room entity (video_id PK, title, channel_name, thumbnail_url, file_path, file_size, download_status, progress, downloaded_at)
-- **PlayerViewModel**: Full download controls wired to player formats
-- **LibraryViewModel**: Downloads list in Library tab
-
-### Equalizer UI (Wave 3B)
-- **EqualizerScreen**: Full AMOLED equalizer â€” preset chips, vertical band sliders, bass/virtualizer sliders
-- **EqualizerViewModel**: HiltViewModel persisting to SettingsManager
-- **EqualizerManagerHolder**: Singleton bridge across navigation
-- **PlayerScreen**: Equalizer button (pink when active)
-- **SettingsScreen**: Audio Equalizer toggle in Features section
-
-### Cast (Wave 3C â€” Coming Soon)
-- **CastSessionManager**: SDK availability detection via `CastContext.getSharedInstance()`, session lifecycle
-- **CastPlayer**: Stub methods (play/pause/seek/toggle/stop)
-- **CastDialog**: Device picker UI with connect/disconnect
-- **HomeScreen**: Cast button hidden when SDK unavailable
-- **Note**: Requires Cast Receiver App ID from Google Cast Developer Console to activate
-
-### Subscription Notifications (Wave 3D)
-- **NotificationHelper**: Creates notification channels, schedules 6-hour periodic WorkManager check
-- **SubscriptionCheckWorker**: @HiltWorker, fetches FEsubscriptions feed, compares video IDs, posts summary notification
-- **Wired in StreamVaultApplication.onCreate()**: Channels created + worker scheduled on app start
-- **POST_NOTIFICATIONS**: Runtime permission requested in MainActivity (Android 13+)
-
-## Secrets
-
-- `secrets.properties` â€” `WEB_CLIENT_ID`, `WEB_CLIENT_SECRET` (placeholder, needs real Google Cloud OAuth)
-- `local.properties` â€” `RELEASE_STORE_FILE`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`
-- Both are gitignored
-
-## Security Notes
-
-- `allowBackup=false` â€” prevents ADB data extraction
-- ProGuard strips ALL Log calls in release builds
-- HttpLoggingInterceptor is debug-only (BuildConfig.DEBUG)
-- Hilt ActivityContextWrapper + PlaybackService keep rules in proguard-rules.pro
-- OAuth token refresh synchronized with `refreshLock` to prevent concurrent refreshes
-
-## Testing
-
-- **Unit tests**: 192 tests (90 player modules + 102 app module)
-- **Player modules**: PlaybackClockTest, PlayerEngineTest, CipherDecryptorTest, ItagInfoTest, NParamDecryptorTest, StreamUrlExtractorTest, SponsorBlockApiTest, SponsorBlockManagerTest, GestureOverlayTest, PlayerControlsTest
-- **App module**: TimeUtilsTest, UrlUtilsTest, HomeViewModelTest, SearchViewModelTest
-- **Integration**: Test on emulator (API 37) and OnePlus 13R (real device)
-- **No instrumented tests yet** (no androidTest/ directory)
+PreferencesManager (DataStore) provides:
+- ThemeType (AMOLED/GRADIENT/MATERIAL3/LIGHT)
+- Default quality, skip silence, volume normalization, audio only mode
+- Remember position, default download quality
 
 ## Conventions
 
 - Kotlin, Compose, Material 3
-- MVVM with UseCase layer
+- MVVM with repository pattern
 - Hilt dependency injection everywhere
-- Sealed classes for UI state (UiState with isLoading/error/data)
-- Hardcoded strings in Compose = BUG â€” always use `stringResource(R.string.xxx)`
-- `applicationId = "com.streamvault.app"` (package name unchanged from StreamVault era)
 - AMOLED theme: pure black (#000000) backgrounds, hot pink (#FF4081) accents
-
----
-**BMAD-METHOD Active**: This project has _bmad/ configured. 27 BMAD skills available via using-bmad wrapper. See ~/.config/opencode/AGENTS.md for dispatch table.
+- Application class: FreedomPlayApplication
+- Package: `com.freedomplay.app`
+- Deprecated Compose icons use `Icons.AutoMirrored.Filled.*` variants

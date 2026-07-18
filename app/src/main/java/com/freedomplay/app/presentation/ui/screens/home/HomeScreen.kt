@@ -1,0 +1,387 @@
+package com.freedomplay.app.presentation.ui.screens.home
+
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.freedomplay.app.presentation.ui.components.VideoCard
+import com.freedomplay.app.presentation.viewmodel.HomeViewModel
+import com.freedomplay.app.domain.model.StreamItem
+
+private val categories = listOf("All", "Music", "Gaming", "News", "Sports", "Movies", "Education", "Technology", "Entertainment", "Science")
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeScreen(
+    onVideoClick: (StreamItem) -> Unit,
+    viewModel: HomeViewModel = hiltViewModel()
+) {
+    val isMusicMode by viewModel.isMusicMode.collectAsStateWithLifecycle()
+    val trending by viewModel.trending.collectAsStateWithLifecycle()
+    val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
+    val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+
+    PullToRefreshBox(
+        isRefreshing = isLoading,
+        onRefresh = { viewModel.refresh() },
+        modifier = Modifier.fillMaxSize()
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 8.dp)
+        ) {
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            item {
+                YouTubeMusicToggle(
+                    isMusic = isMusicMode,
+                    onToggle = { viewModel.toggleYouTubeMusic() }
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            if (!isMusicMode) {
+                item {
+                    CategoryChipsRow(
+                        categories = categories,
+                        selectedCategory = selectedCategory,
+                        onCategorySelected = { viewModel.selectCategory(it) }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+
+            when {
+                isLoading && trending.isEmpty() -> {
+                    item { ShimmerLoadingSection() }
+                }
+                error != null && trending.isEmpty() -> {
+                    item {
+                        ErrorState(
+                            message = error ?: "Something went wrong",
+                            onRetry = { viewModel.refresh() }
+                        )
+                    }
+                }
+                else -> {
+                    if (isMusicMode) {
+                        item {
+                            Text(
+                                text = "New Releases",
+                                color = Color(0xFFE0E0E0),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
+                        item {
+                            MusicGridSection(
+                                items = trending.take(6),
+                                onVideoClick = onVideoClick
+                            )
+                        }
+                        item {
+                            Text(
+                                text = "Moods & Genres",
+                                color = Color(0xFFE0E0E0),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                        }
+                        item {
+                            MoodChipsRow()
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
+                        if (trending.size > 6) {
+                            item {
+                                Text(
+                                    text = "Recommended",
+                                    color = Color(0xFFE0E0E0),
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                        items(trending.drop(6)) { video ->
+                            VideoCard(
+                                video = video,
+                                onClick = { onVideoClick(video) },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
+                        }
+                    } else {
+                        items(trending) { video ->
+                            VideoCard(
+                                video = video,
+                                onClick = { onVideoClick(video) },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun YouTubeMusicToggle(
+    isMusic: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        SingleChoiceSegmentedButtonRow {
+            SegmentedButton(
+                selected = !isMusic,
+                onClick = { if (isMusic) onToggle() },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = Color(0xFFFF4081).copy(alpha = 0.2f),
+                    activeContentColor = Color(0xFFFF4081),
+                    inactiveContainerColor = Color(0xFF1A1A2E),
+                    inactiveContentColor = Color(0xFF808080)
+                )
+            ) {
+                Text("YouTube", style = MaterialTheme.typography.labelLarge)
+            }
+            SegmentedButton(
+                selected = isMusic,
+                onClick = { if (!isMusic) onToggle() },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = Color(0xFFFF4081).copy(alpha = 0.2f),
+                    activeContentColor = Color(0xFFFF4081),
+                    inactiveContainerColor = Color(0xFF1A1A2E),
+                    inactiveContentColor = Color(0xFF808080)
+                )
+            ) {
+                Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+                Text("Music", style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryChipsRow(
+    categories: List<String>,
+    selectedCategory: String,
+    onCategorySelected: (String) -> Unit
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(categories) { category ->
+            FilterChip(
+                selected = category == selectedCategory,
+                onClick = { onCategorySelected(category) },
+                label = {
+                    Text(
+                        text = category,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = Color(0xFF1A1A2E),
+                    labelColor = Color(0xFFB0B0B0)
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShimmerLoadingSection() {
+    Column(
+        modifier = Modifier.padding(horizontal = 16.dp)
+    ) {
+        repeat(5) {
+            ShimmerVideoCard()
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+private fun ShimmerVideoCard() {
+    val infiniteTransition = rememberInfiniteTransition()
+    val alpha = infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.7f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000),
+            repeatMode = RepeatMode.Reverse
+        )
+    )
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFF1A1A1A).copy(alpha = alpha.value))
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .height(16.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF1A1A1A).copy(alpha = alpha.value))
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.5f)
+                .height(12.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Color(0xFF1A1A1A).copy(alpha = alpha.value))
+        )
+    }
+}
+
+@Composable
+private fun MusicGridSection(
+    items: List<StreamItem>,
+    onVideoClick: (StreamItem) -> Unit
+) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        for (i in items.indices step 2) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (i < items.size) {
+                    VideoCard(
+                        video = items[i],
+                        onClick = { onVideoClick(items[i]) },
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+                if (i + 1 < items.size) {
+                    VideoCard(
+                        video = items[i + 1],
+                        onClick = { onVideoClick(items[i + 1]) },
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+    }
+}
+
+@Composable
+private fun MoodChipsRow() {
+    val moods = listOf("Chill", "Focus", "Workout", "Party", "Sleep", "Romance")
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(moods) { mood ->
+            FilterChip(
+                selected = false,
+                onClick = { },
+                label = { Text(mood) },
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = Color(0xFF1A1A2E),
+                    labelColor = Color(0xFFB0B0B0)
+                )
+            )
+        }
+    }
+}
+
+@Composable
+private fun ErrorState(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = message,
+            color = Color(0xFF808080),
+            fontSize = 16.sp,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = onRetry,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFFF4081)
+            )
+        ) {
+            Icon(Icons.Default.Refresh, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Retry")
+        }
+    }
+}

@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Preview Browser</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="browser-shell">
+      <header class="browser-header">
+        <h1>Preview Browser</h1>
+        <p class="project-path">Project: <code>{{PROJECT_DIRECTORY}}</code></p>
+      </header>
+
+      <section id="worktree-panel" class="worktree-panel" style="display:none">
+        <div id="worktree-switcher" class="wt-switcher"></div>
+      </section>
+
+      <section class="file-list-panel">
+        <div class="panel-title-row">
+          <h2>Previewable Files</h2>
+          <button id="refresh" type="button">Refresh</button>
+        </div>
+        <ul id="file-list" class="file-list"></ul>
+      </section>
+    </main>
+
+    <script>
+      const fileList = document.getElementById("file-list");
+      const refreshButton = document.getElementById("refresh");
+      const worktreePanel = document.getElementById("worktree-panel");
+      const projectId = "{{PROJECT_ID}}";
+      let worktreeParams = "{{WORKTREE_PARAMS}}";
+
+      const escapeHtml = (value) => value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+
+      const iconFor = (file) => {
+        let color = "#519aba";
+        let text = "";
+        const f = file.toLowerCase();
+        if (f.endsWith(".ts")) { color = "#3178c6"; text = "TS"; }
+        else if (f.endsWith(".tsx")) { color = "#3178c6"; text = "TX"; }
+        else if (f.endsWith(".js") || f.endsWith(".cjs") || f.endsWith(".mjs")) { color = "#f1e05a"; text = "JS"; }
+        else if (f.endsWith(".jsx")) { color = "#f1e05a"; text = "JX"; }
+        else if (f.endsWith(".html") || f.endsWith(".htm")) { color = "#e34f26"; text = "<>"; }
+        else if (f.endsWith(".css")) { color = "#1572b6"; text = "#"; }
+        else if (f.endsWith(".json")) { color = "#cbcb41"; text = "{}"; }
+        else if (f.endsWith(".md")) { color = "#42a5f5"; text = "M↓"; }
+        else if (f.endsWith(".py")) { color = "#3572A5"; text = "PY"; }
+        else if (f.endsWith(".go")) { color = "#00ADD8"; text = "GO"; }
+        else if (f.endsWith(".rs")) { color = "#dea584"; text = "RS"; }
+        else if (f.endsWith(".drawio")) { color = "#f08705"; text = "D"; }
+        else if (f.endsWith(".csv")) { color = "#217346"; text = "CSV"; }
+        else { text = f.split('.').pop().substring(0, 2).toUpperCase() || "F"; }
+
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+          <path fill="${color}" d="M13.85 4.44l-3.28-3.3c-.19-.18-.43-.28-.71-.28H3.5c-.55 0-1 .45-1 1v12.28c0 .55.45 1 1 1h9c.55 0 1-.45 1-1V5.14c0-.26-.1-.51-.28-.7zM9.5 2.56L12.06 5H9.5V2.56zM12.5 14h-9V2.5h5V5.5h3.5v8.5z"/>
+          <text x="8" y="11" font-size="5" font-family="sans-serif" font-weight="bold" fill="${color}" text-anchor="middle">${text}</text>
+        </svg>`;
+      };
+
+      function buildHref(file) {
+        let href = "/preview?project=" + encodeURIComponent(projectId) + "&file=" + encodeURIComponent(file);
+        if (worktreeParams) href += "&" + worktreeParams;
+        return href;
+      }
+
+      function buildTree(files) {
+        const root = {};
+        for (const file of files) {
+          const parts = file.split("/");
+          let cursor = root;
+          for (let i = 0; i < parts.length; i += 1) {
+            const part = parts[i];
+            const isLeaf = i === parts.length - 1;
+            if (isLeaf) {
+              cursor[part] = file;
+            } else {
+              cursor[part] = cursor[part] || {};
+              cursor = cursor[part];
+            }
+          }
+        }
+        return root;
+      }
+
+      const FOLDER_STATE_KEY = "browser-folder-state:" + projectId + ":" + worktreeParams;
+
+      function getSavedFolderState() {
+        try {
+          const raw = localStorage.getItem(FOLDER_STATE_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch { return null; }
+      }
+
+      function saveFolderState() {
+        const open = [];
+        fileList.querySelectorAll("details").forEach((d) => {
+          if (d.open) open.push(d.getAttribute("data-folder-path"));
+        });
+        try { localStorage.setItem(FOLDER_STATE_KEY, JSON.stringify(open)); } catch {}
+      }
+
+      function renderTree(node, parentPath) {
+        parentPath = parentPath || "";
+        const entries = Object.entries(node).sort(([a], [b]) => a.localeCompare(b));
+        return `<ul class=\"file-tree\">${entries.map(([name, value]) => {
+          if (typeof value === "string") {
+            const href = buildHref(value);
+            return `<li class=\"file-item\"><a href=\"${href}\" class=\"file-link\" data-tooltip=\"${escapeHtml(value)}\"><span class=\"file-icon\">${iconFor(value)}</span><span class=\"file-path\">${escapeHtml(name)}</span></a></li>`;
+          }
+          const folderPath = parentPath ? parentPath + "/" + name : name;
+          return `<li class=\"folder-item\"><details data-folder-path=\"${escapeHtml(folderPath)}\"><summary>${escapeHtml(name)}</summary>${renderTree(value, folderPath)}</details></li>`;
+        }).join("")}</ul>`;
+      }
+
+      function restoreFolderState() {
+        const saved = getSavedFolderState();
+        if (!saved) return; // first visit: all collapsed by default
+        const openSet = new Set(saved);
+        fileList.querySelectorAll("details").forEach((d) => {
+          d.open = openSet.has(d.getAttribute("data-folder-path"));
+        });
+      }
+
+      function attachFolderToggleListeners() {
+        fileList.addEventListener("toggle", (e) => {
+          if (e.target.tagName === "DETAILS") saveFolderState();
+        }, true);
+      }
+
+      async function loadFiles() {
+        fileList.innerHTML = "<li class=\"file-empty\">Loading...</li>";
+        let apiUrl = "/api/files?project=" + encodeURIComponent(projectId);
+        if (worktreeParams) apiUrl += "&" + worktreeParams;
+        const response = await fetch(apiUrl);
+        if (!response.ok) {
+          fileList.innerHTML = "<li class=\"file-empty\">Failed to load files.</li>";
+          return;
+        }
+
+        const data = await response.json();
+        const files = Array.isArray(data.files) ? data.files : [];
+
+        if (files.length === 0) {
+          fileList.innerHTML = "<li class=\"file-empty\">No previewable files found.</li>";
+          return;
+        }
+
+        fileList.innerHTML = renderTree(buildTree(files));
+        restoreFolderState();
+        attachFolderToggleListeners();
+      }
+
+      refreshButton.addEventListener("click", () => {
+        loadFiles().catch(() => {
+          fileList.innerHTML = "<li class=\"file-empty\">Failed to load files.</li>";
+        });
+      });
+
+      loadFiles().catch(() => {
+        fileList.innerHTML = "<li class=\"file-empty\">Failed to load files.</li>";
+      });
+
+      function getActiveWorktree() {
+        const params = new URLSearchParams(worktreeParams);
+        return params.get("worktree") || "";
+      }
+
+      function switchWorktree(name) {
+        const url = new URL(window.location);
+        if (name) {
+          url.searchParams.set("worktree", name);
+        } else {
+          url.searchParams.delete("worktree");
+        }
+        window.location.href = url.toString();
+      }
+
+      const branchSvg = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM5 9.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zM11 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" fill="currentColor" opacity="0"/><path d="M5 6.5v3M11 6.5C11 8 9.5 9.5 5 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="5" cy="5" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="5" cy="11" r="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="11" cy="5" r="1.5" stroke="currentColor" stroke-width="1.3"/></svg>';
+      const chevronSvg = '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const checkSvg = '<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 7L6 9.5L10.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+      function buildSwitcher(container, worktrees, activeWt, defaultBranch, onSwitch) {
+        const allOptions = [{ value: "", label: defaultBranch || "unknown" }];
+        for (const wt of worktrees) {
+          const label = (typeof wt === "object" && wt.branch) ? wt.name + " (" + wt.branch + ")" : (wt.name || wt);
+          allOptions.push({ value: wt.name || wt, label: label });
+        }
+        const current = allOptions.find(o => o.value === activeWt) || allOptions[0];
+
+        const trigger = document.createElement("button");
+        trigger.className = "wt-trigger";
+        trigger.type = "button";
+        trigger.setAttribute("aria-expanded", "false");
+        trigger.innerHTML =
+          '<span class="wt-trigger-icon">' + branchSvg + '</span>'
+          + '<span class="wt-trigger-name">' + escapeHtml(current.label) + '</span>'
+          + '<span class="wt-trigger-chevron">' + chevronSvg + '</span>';
+
+        const dropdown = document.createElement("div");
+        dropdown.className = "wt-dropdown";
+        dropdown.setAttribute("data-open", "false");
+
+        for (const opt of allOptions) {
+          const btn = document.createElement("button");
+          btn.className = "wt-option";
+          btn.type = "button";
+          btn.setAttribute("data-active", opt.value === activeWt ? "true" : "false");
+          const badge = opt.value === "" ? '<span class="wt-option-badge">default</span>' : "";
+          btn.innerHTML =
+            '<span class="wt-option-check">' + checkSvg + '</span>'
+            + '<span class="wt-option-label">' + escapeHtml(opt.label) + '</span>'
+            + badge;
+          btn.addEventListener("click", () => onSwitch(opt.value));
+          dropdown.appendChild(btn);
+        }
+
+        trigger.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const open = dropdown.getAttribute("data-open") === "true";
+          dropdown.setAttribute("data-open", open ? "false" : "true");
+          trigger.setAttribute("aria-expanded", open ? "false" : "true");
+        });
+
+        document.addEventListener("click", () => {
+          dropdown.setAttribute("data-open", "false");
+          trigger.setAttribute("aria-expanded", "false");
+        });
+
+        container.appendChild(trigger);
+        container.appendChild(dropdown);
+      }
+
+      async function loadWorktrees() {
+        try {
+          const resp = await fetch("/api/worktrees?project=" + encodeURIComponent(projectId));
+          const data = await resp.json();
+          const worktrees = Array.isArray(data.worktrees) ? data.worktrees : [];
+          if (worktrees.length === 0) return;
+
+          worktreePanel.style.display = "";
+          const active = getActiveWorktree();
+          const container = document.getElementById("worktree-switcher");
+          buildSwitcher(container, worktrees, active, data.defaultBranch, switchWorktree);
+        } catch {}
+      }
+
+      loadWorktrees();
+    </script>
+  </body>
+</html>

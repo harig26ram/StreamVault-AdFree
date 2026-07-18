@@ -18,15 +18,15 @@ val localProperties = Properties().apply {
 }
 
 android {
-    namespace = "com.streamvault.app"
+    namespace = "com.freedomplay.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.streamvault.app"
+        applicationId = "com.freedomplay.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 7
-        versionName = "7.0.0"
+        versionCode = 8
+        versionName = "1.0.0"
         vectorDrawables.useSupportLibrary = true
 
         buildConfigField("String", "WEB_CLIENT_ID", "\"${secretsProperties.getProperty("WEB_CLIENT_ID", "")}\"")
@@ -37,9 +37,9 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file(localProperties.getProperty("RELEASE_STORE_FILE", "streamvault-release.jks"))
+            storeFile = file(localProperties.getProperty("RELEASE_STORE_FILE", "freedomplay-release.jks"))
             storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD", "")
-            keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS", "streamvault")
+            keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS", "freedomplay")
             keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD", "")
         }
     }
@@ -126,11 +126,12 @@ dependencies {
     // Gson
     implementation("com.google.code.gson:gson:2.10.1")
 
-    // Player modules (custom MediaCodec pipeline)
-    implementation(project(":player:core"))
-    implementation(project(":player:youtube"))
-    implementation(project(":player:ui"))
-    implementation(project(":player:sponsorblock"))
+    // Media3 ExoPlayer
+    implementation("androidx.media3:media3-exoplayer:1.3.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.3.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.3.1")
+    implementation("androidx.media3:media3-ui:1.3.1")
+    implementation("androidx.media3:media3-session:1.3.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:$kotlinxCoroutinesVersion")
