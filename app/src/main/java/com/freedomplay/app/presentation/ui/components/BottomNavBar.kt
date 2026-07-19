@@ -15,7 +15,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.freedomplay.app.presentation.navigation.Screen
@@ -40,8 +40,8 @@ fun BottomNavBar(
     onItemSelected: (String) -> Unit
 ) {
     NavigationBar(
-        containerColor = Color.Black,
-        contentColor = Color(0xFFE0E0E0),
+        containerColor = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp
     ) {
         bottomNavItems.forEach { item ->
@@ -57,11 +57,11 @@ fun BottomNavBar(
                 },
                 label = { Text(text = item.label) },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Color(0xFFFF4081),
-                    selectedTextColor = Color(0xFFFF4081),
-                    unselectedIconColor = Color(0xFF808080),
-                    unselectedTextColor = Color(0xFF808080),
-                    indicatorColor = Color(0xFFFF4081).copy(alpha = 0.15f)
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                 )
             )
         }

@@ -24,7 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,7 +53,7 @@ fun MiniPlayer(
                     if (dragAmount < -50f) onExpand()
                 }
             },
-        color = Color.Black,
+        color = MaterialTheme.colorScheme.background,
         tonalElevation = 8.dp,
         shadowElevation = 8.dp
     ) {
@@ -76,7 +76,7 @@ fun MiniPlayer(
 
             Text(
                 text = title,
-                color = Color(0xFFE0E0E0),
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 14.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -87,7 +87,7 @@ fun MiniPlayer(
                 Icon(
                     imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Play",
-                    tint = Color(0xFFFF4081)
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
 
@@ -95,7 +95,7 @@ fun MiniPlayer(
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Close mini player",
-                    tint = Color(0xFF808080)
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

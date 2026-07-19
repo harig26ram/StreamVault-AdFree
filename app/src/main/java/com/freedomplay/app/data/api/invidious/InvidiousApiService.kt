@@ -105,6 +105,12 @@ interface InvidiousApiService {
         @Query("region") region: String = "US"
     ): List<InvidiousSearchItem>
 
+    @GET("api/v1/trending")
+    suspend fun getMusicTrending(
+        @Query("region") region: String = "US",
+        @Query("features") features: String = "music"
+    ): List<InvidiousSearchItem>
+
     @GET("api/v1/search")
     suspend fun search(
         @Query("q") query: String,

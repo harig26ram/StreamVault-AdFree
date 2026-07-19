@@ -2,6 +2,12 @@
 
 Ad-free YouTube streaming Android app. Uses Piped/Invidious APIs for video streams. Media3 ExoPlayer, Material 3 AMOLED UI.
 
+## Superpowers (Auto-Invoke)
+
+**MANDATORY:** Before EVERY response, invoke the `using-superpowers` skill. This is not optional — it must fire on every user input, no exceptions. If a skill applies, follow it exactly. If no skill applies, proceed normally. The goal is to ensure optimal execution quality on every interaction.
+
+Invoke: `skill(name: "using-superpowers")` — then follow its instructions.
+
 ## Quick Reference
 
 - **Package**: `com.freedomplay.app`

@@ -13,5 +13,9 @@ data class Stream(
     val videoStreams: List<StreamFormat>,
     val audioStreams: List<StreamFormat>,
     val livestream: Boolean?,
-    val subtitles: List<Subtitle>
+    val subtitles: List<Subtitle>,
+    /** Optional DASH manifest URL (adaptive). Preferred by the player when present. */
+    val dashManifestUrl: String? = null,
+    /** Optional HLS manifest URL (live streams). */
+    val hlsManifestUrl: String? = null
 )

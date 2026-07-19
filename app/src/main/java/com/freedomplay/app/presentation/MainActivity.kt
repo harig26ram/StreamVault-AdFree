@@ -1,8 +1,10 @@
 package com.freedomplay.app.presentation
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -13,11 +15,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,6 +36,7 @@ import com.freedomplay.app.presentation.ui.components.MiniPlayer
 import com.freedomplay.app.data.local.preferences.PreferencesManager
 import com.freedomplay.app.presentation.ui.theme.FreedomPlayTheme
 import com.freedomplay.app.presentation.ui.theme.ThemeType
+import com.freedomplay.app.util.UrlUtils
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -48,14 +53,45 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var preferencesManager: PreferencesManager
 
+    private var pendingVideoId by mutableStateOf<String?>(null)
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { }
+    ) { isGranted ->
+        if (!isGranted) {
+            // Download progress notifications will not be shown
+        }
+    }
+
+    private fun parseYouTubeUrl(intent: Intent): String? {
+        val data: Uri? = intent.data
+        if (data != null) {
+            val host = data.host ?: return null
+            val videoId = when {
+                host.contains("youtube.com") -> data.getQueryParameter("v")
+                host.contains("youtu.be") -> data.path?.trimStart('/')
+                else -> null
+            }
+            if (videoId != null) return videoId
+        }
+        return intent.getStringExtra("videoId")
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val videoId = parseYouTubeUrl(intent)
+        if (videoId != null) {
+            pendingVideoId = videoId
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         requestNotificationPermission()
+
+        pendingVideoId = parseYouTubeUrl(intent)
 
         setContent {
             val themeType by preferencesManager.theme.collectAsStateWithLifecycle(
@@ -68,10 +104,18 @@ class MainActivity : ComponentActivity() {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = navBackStackEntry?.destination?.route
 
+            val videoIdToNavigate = pendingVideoId
+            LaunchedEffect(videoIdToNavigate) {
+                if (videoIdToNavigate != null) {
+                    pendingVideoId = null
+                    navController.navigate(Screen.Player.createRoute(videoIdToNavigate))
+                }
+            }
+
             FreedomPlayTheme(themeType = resolvedThemeType) {
                 Scaffold(
                     bottomBar = {
-                        if (currentRoute != Screen.Player.route) {
+                        if (currentRoute?.startsWith("player/") != true) {
                             BottomNavBar(
                                 currentRoute = currentRoute,
                                 onItemSelected = { route ->
@@ -104,20 +148,21 @@ class MainActivity : ComponentActivity() {
                             }
                         )
 
-                        if (miniPlayerData != null && currentRoute != Screen.Player.route) {
+                        val miniData = miniPlayerData
+                        if (miniData != null && currentRoute?.startsWith("player/") != true) {
                             MiniPlayer(
-                                title = miniPlayerData!!.title,
-                                thumbnail = miniPlayerData!!.thumbnail,
-                                isPlaying = miniPlayerData!!.isPlaying,
+                                title = miniData.title,
+                                thumbnail = miniData.thumbnail,
+                                isPlaying = miniData.isPlaying,
                                 onPlayPause = {
-                                    miniPlayerData = miniPlayerData?.copy(
-                                        isPlaying = !miniPlayerData!!.isPlaying
+                                    miniPlayerData = miniData.copy(
+                                        isPlaying = !miniData.isPlaying
                                     )
                                 },
                                 onClose = { miniPlayerData = null },
                                 onExpand = {
                                     navController.navigate(
-                                        Screen.Player.createRoute(miniPlayerData!!.videoId)
+                                        Screen.Player.createRoute(miniData.videoId)
                                     )
                                 },
                                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -134,6 +179,7 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        // The Compose system will handle UI visibility via the isPiPActive state
     }
 
     private fun requestNotificationPermission() {

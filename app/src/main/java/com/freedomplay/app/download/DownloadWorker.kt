@@ -90,12 +90,13 @@ class DownloadWorker @AssistedInject constructor(
 
             setProgress(workDataOf(KEY_PROGRESS to 85))
 
+            val safeName = sanitizeFileName("$title - $channelName")
             val outputFile = if (audioFile != null && videoFile != null) {
-                muxFiles(audioFile, videoFile, videoId, "$title - $channelName")
+                muxFiles(audioFile, videoFile, videoId, safeName)
             } else if (audioFile != null) {
-                saveToDownloads(audioFile, videoId, "$title - $channelName")
+                saveToDownloads(audioFile, videoId, safeName)
             } else if (videoFile != null) {
-                saveToDownloads(videoFile, videoId, "$title - $channelName")
+                saveToDownloads(videoFile, videoId, safeName)
             } else null
 
             if (outputFile == null) {
@@ -161,23 +162,25 @@ class DownloadWorker @AssistedInject constructor(
     private suspend fun downloadFile(url: String, output: File, progressStart: Int, progressEnd: Int) {
         val request = Request.Builder().url(url).build()
         val response = okHttpClient.newCall(request).execute()
-        val body = response.body ?: throw IOException("Empty response body")
-        val totalBytes = body.contentLength()
+        response.use { resp ->
+            val body = resp.body ?: throw IOException("Empty response body")
+            val totalBytes = body.contentLength().takeIf { it > 0 } ?: -1L
 
-        body.byteStream().use { input ->
-            FileOutputStream(output).use { outputStream ->
-                val buffer = ByteArray(8192)
-                var bytesRead: Long = 0
-                var bytes: Int
+            body.byteStream().use { input ->
+                FileOutputStream(output).use { outputStream ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Long = 0
+                    var bytes: Int
 
-                while (input.read(buffer).also { bytes = it } != -1) {
-                    if (isStopped) throw IOException("Cancelled")
-                    outputStream.write(buffer, 0, bytes)
-                    bytesRead += bytes
+                    while (input.read(buffer).also { bytes = it } != -1) {
+                        if (isStopped) throw IOException("Cancelled")
+                        outputStream.write(buffer, 0, bytes)
+                        bytesRead += bytes
 
-                    if (totalBytes > 0) {
-                        val progress = progressStart + ((bytesRead.toFloat() / totalBytes) * (progressEnd - progressStart)).toInt()
-                        setProgress(workDataOf(KEY_PROGRESS to progress.coerceIn(progressStart, progressEnd)))
+                        if (totalBytes > 0) {
+                            val progress = progressStart + ((bytesRead.toFloat() / totalBytes) * (progressEnd - progressStart)).toInt()
+                            setProgress(workDataOf(KEY_PROGRESS to progress.coerceIn(progressStart, progressEnd)))
+                        }
                     }
                 }
             }
@@ -209,6 +212,14 @@ class DownloadWorker @AssistedInject constructor(
             mimeType?.contains("3gpp") == true -> "3gp"
             else -> "mp4"
         }
+    }
+
+    private fun sanitizeFileName(name: String): String {
+        return name.replace(Regex("[\\\\/:*?\"<>|\\x00-\\x1F]"), "_")
+            .replace(Regex("\\.{2,}"), "_")
+            .trim()
+            .take(200)
+            .ifBlank { "download" }
     }
 
     private fun muxFiles(audioFile: File, videoFile: File, @Suppress("UNUSED_PARAMETER") videoId: String, displayName: String): File? {
@@ -248,34 +259,37 @@ class DownloadWorker @AssistedInject constructor(
                     videoMuxerTrack = muxer.addTrack(format)
                 }
 
-                muxer.start()
-                val buffer = java.nio.ByteBuffer.allocate(1024 * 1024)
-                val info = android.media.MediaCodec.BufferInfo()
+                try {
+                    muxer.start()
+                    val buffer = java.nio.ByteBuffer.allocate(256 * 1024)
+                    val info = android.media.MediaCodec.BufferInfo()
 
-                if (videoTrackIndex >= 0) {
-                    while (true) {
-                        val chunkSize = videoExtractor.readSampleData(buffer, 0)
-                        if (chunkSize < 0) break
-                        info.set(0, chunkSize, videoExtractor.sampleTime, videoExtractor.sampleFlags)
-                        muxer.writeSampleData(videoMuxerTrack, buffer, info)
-                        videoExtractor.advance()
+                    if (videoTrackIndex >= 0) {
+                        while (true) {
+                            val chunkSize = videoExtractor.readSampleData(buffer, 0)
+                            if (chunkSize < 0) break
+                            info.set(0, chunkSize, videoExtractor.sampleTime, videoExtractor.sampleFlags)
+                            muxer.writeSampleData(videoMuxerTrack, buffer, info)
+                            videoExtractor.advance()
+                        }
                     }
-                }
 
-                if (audioTrackIndex >= 0) {
-                    while (true) {
-                        val chunkSize = audioExtractor.readSampleData(buffer, 0)
-                        if (chunkSize < 0) break
-                        info.set(0, chunkSize, audioExtractor.sampleTime, audioExtractor.sampleFlags)
-                        muxer.writeSampleData(audioMuxerTrack, buffer, info)
-                        audioExtractor.advance()
+                    if (audioTrackIndex >= 0) {
+                        while (true) {
+                            val chunkSize = audioExtractor.readSampleData(buffer, 0)
+                            if (chunkSize < 0) break
+                            info.set(0, chunkSize, audioExtractor.sampleTime, audioExtractor.sampleFlags)
+                            muxer.writeSampleData(audioMuxerTrack, buffer, info)
+                            audioExtractor.advance()
+                        }
                     }
-                }
 
-                muxer.stop()
-                muxer.release()
-                audioExtractor.release()
-                videoExtractor.release()
+                    muxer.stop()
+                } finally {
+                    try { muxer.release() } catch (_: Exception) {}
+                    try { audioExtractor.release() } catch (_: Exception) {}
+                    try { videoExtractor.release() } catch (_: Exception) {}
+                }
 
                 addToMediaStore(outputFile, "video/mp4", displayName)
                 outputFile
@@ -304,34 +318,37 @@ class DownloadWorker @AssistedInject constructor(
                     videoMuxerTrack = muxer.addTrack(videoExtractor.getTrackFormat(videoTrackIndex))
                 }
 
-                muxer.start()
-                val buffer = java.nio.ByteBuffer.allocate(1024 * 1024)
-                val info = android.media.MediaCodec.BufferInfo()
+                try {
+                    muxer.start()
+                    val buffer = java.nio.ByteBuffer.allocate(256 * 1024)
+                    val info = android.media.MediaCodec.BufferInfo()
 
-                if (videoTrackIndex >= 0) {
-                    while (true) {
-                        val chunkSize = videoExtractor.readSampleData(buffer, 0)
-                        if (chunkSize < 0) break
-                        info.set(0, chunkSize, videoExtractor.sampleTime, videoExtractor.sampleFlags)
-                        muxer.writeSampleData(videoMuxerTrack, buffer, info)
-                        videoExtractor.advance()
+                    if (videoTrackIndex >= 0) {
+                        while (true) {
+                            val chunkSize = videoExtractor.readSampleData(buffer, 0)
+                            if (chunkSize < 0) break
+                            info.set(0, chunkSize, videoExtractor.sampleTime, videoExtractor.sampleFlags)
+                            muxer.writeSampleData(videoMuxerTrack, buffer, info)
+                            videoExtractor.advance()
+                        }
                     }
-                }
 
-                if (audioTrackIndex >= 0) {
-                    while (true) {
-                        val chunkSize = audioExtractor.readSampleData(buffer, 0)
-                        if (chunkSize < 0) break
-                        info.set(0, chunkSize, audioExtractor.sampleTime, audioExtractor.sampleFlags)
-                        muxer.writeSampleData(audioMuxerTrack, buffer, info)
-                        audioExtractor.advance()
+                    if (audioTrackIndex >= 0) {
+                        while (true) {
+                            val chunkSize = audioExtractor.readSampleData(buffer, 0)
+                            if (chunkSize < 0) break
+                            info.set(0, chunkSize, audioExtractor.sampleTime, audioExtractor.sampleFlags)
+                            muxer.writeSampleData(audioMuxerTrack, buffer, info)
+                            audioExtractor.advance()
+                        }
                     }
-                }
 
-                muxer.stop()
-                muxer.release()
-                audioExtractor.release()
-                videoExtractor.release()
+                    muxer.stop()
+                } finally {
+                    try { muxer.release() } catch (_: Exception) {}
+                    try { audioExtractor.release() } catch (_: Exception) {}
+                    try { videoExtractor.release() } catch (_: Exception) {}
+                }
 
                 outputFile
             }
@@ -381,9 +398,22 @@ class DownloadWorker @AssistedInject constructor(
                     put(MediaStore.Downloads.DISPLAY_NAME, file.name)
                     put(MediaStore.Downloads.MIME_TYPE, mimeType)
                     put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/FreedomPlay")
-                    put(MediaStore.Downloads.IS_PENDING, 0)
+                    put(MediaStore.Downloads.IS_PENDING, 1)
                 }
-                applicationContext.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                val resolver = applicationContext.contentResolver
+                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return
+                try {
+                    resolver.openOutputStream(uri)?.use { output ->
+                        file.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    }
+                    values.clear()
+                    values.put(MediaStore.Downloads.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                } catch (e: Exception) {
+                    resolver.delete(uri, null, null)
+                }
             } catch (_: Exception) { }
         }
     }

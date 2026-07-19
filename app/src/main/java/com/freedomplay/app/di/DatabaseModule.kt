@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.freedomplay.app.data.local.db.DownloadDao
 import com.freedomplay.app.data.local.db.FreedomPlayDatabase
 import com.freedomplay.app.data.local.db.PlaylistDao
+import com.freedomplay.app.data.local.db.WatchHistoryDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -23,7 +24,8 @@ object DatabaseModule {
             context,
             FreedomPlayDatabase::class.java,
             "freedomplay_database"
-        ).build()
+        ).fallbackToDestructiveMigration()
+            .build()
     }
 
     @Provides
@@ -36,5 +38,11 @@ object DatabaseModule {
     @Singleton
     fun providePlaylistDao(database: FreedomPlayDatabase): PlaylistDao {
         return database.playlistDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideWatchHistoryDao(database: FreedomPlayDatabase): WatchHistoryDao {
+        return database.watchHistoryDao()
     }
 }

@@ -44,7 +44,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -118,7 +117,7 @@ fun HomeScreen(
                         item {
                             Text(
                                 text = "New Releases",
-                                color = Color(0xFFE0E0E0),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -133,7 +132,7 @@ fun HomeScreen(
                         item {
                             Text(
                                 text = "Moods & Genres",
-                                color = Color(0xFFE0E0E0),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -147,7 +146,7 @@ fun HomeScreen(
                             item {
                                 Text(
                                     text = "Recommended",
-                                    color = Color(0xFFE0E0E0),
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -193,10 +192,10 @@ private fun YouTubeMusicToggle(
                 onClick = { if (isMusic) onToggle() },
                 shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
                 colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Color(0xFFFF4081).copy(alpha = 0.2f),
-                    activeContentColor = Color(0xFFFF4081),
-                    inactiveContainerColor = Color(0xFF1A1A2E),
-                    inactiveContentColor = Color(0xFF808080)
+                    activeContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                    activeContentColor = MaterialTheme.colorScheme.primary,
+                    inactiveContainerColor = MaterialTheme.colorScheme.surface,
+                    inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             ) {
                 Text("YouTube", style = MaterialTheme.typography.labelLarge)
@@ -206,10 +205,10 @@ private fun YouTubeMusicToggle(
                 onClick = { if (!isMusic) onToggle() },
                 shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
                 colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = Color(0xFFFF4081).copy(alpha = 0.2f),
-                    activeContentColor = Color(0xFFFF4081),
-                    inactiveContainerColor = Color(0xFF1A1A2E),
-                    inactiveContentColor = Color(0xFF808080)
+                    activeContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                    activeContentColor = MaterialTheme.colorScheme.primary,
+                    inactiveContainerColor = MaterialTheme.colorScheme.surface,
+                    inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             ) {
                 Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
@@ -240,8 +239,8 @@ private fun CategoryChipsRow(
                     )
                 },
                 colors = FilterChipDefaults.filterChipColors(
-                    containerColor = Color(0xFF1A1A2E),
-                    labelColor = Color(0xFFB0B0B0)
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
         }
@@ -278,7 +277,7 @@ private fun ShimmerVideoCard() {
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF1A1A1A).copy(alpha = alpha.value))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = alpha.value))
         )
         Spacer(modifier = Modifier.height(8.dp))
         Box(
@@ -286,7 +285,7 @@ private fun ShimmerVideoCard() {
                 .fillMaxWidth(0.8f)
                 .height(16.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .background(Color(0xFF1A1A1A).copy(alpha = alpha.value))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = alpha.value))
         )
         Spacer(modifier = Modifier.height(4.dp))
         Box(
@@ -294,7 +293,7 @@ private fun ShimmerVideoCard() {
                 .fillMaxWidth(0.5f)
                 .height(12.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .background(Color(0xFF1A1A1A).copy(alpha = alpha.value))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = alpha.value))
         )
     }
 }
@@ -345,10 +344,11 @@ private fun MoodChipsRow() {
             FilterChip(
                 selected = false,
                 onClick = { },
+                enabled = false,
                 label = { Text(mood) },
                 colors = FilterChipDefaults.filterChipColors(
-                    containerColor = Color(0xFF1A1A2E),
-                    labelColor = Color(0xFFB0B0B0)
+                    disabledContainerColor = MaterialTheme.colorScheme.surface,
+                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             )
         }
@@ -368,7 +368,7 @@ private fun ErrorState(
     ) {
         Text(
             text = message,
-            color = Color(0xFF808080),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 16.sp,
             textAlign = TextAlign.Center
         )
@@ -376,7 +376,7 @@ private fun ErrorState(
         Button(
             onClick = onRetry,
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFFF4081)
+                containerColor = MaterialTheme.colorScheme.primary
             )
         ) {
             Icon(Icons.Default.Refresh, contentDescription = null)

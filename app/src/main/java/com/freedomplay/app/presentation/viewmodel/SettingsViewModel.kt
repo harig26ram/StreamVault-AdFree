@@ -6,6 +6,7 @@ import com.freedomplay.app.data.local.preferences.PreferencesManager
 import com.freedomplay.app.presentation.ui.theme.ThemeType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -17,23 +18,37 @@ class SettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     val themeType = preferencesManager.theme
-        .map { ThemeType.valueOf(it) }
+        .map { try { ThemeType.valueOf(it) } catch (_: Exception) { ThemeType.AMOLED } }
+        .catch { emit(ThemeType.AMOLED) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ThemeType.AMOLED)
 
     val defaultQuality = preferencesManager.defaultQuality
+        .catch { emit("720p") }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "720p")
 
     val skipSilence = preferencesManager.skipSilence
+        .catch { emit(false) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val audioOnly = preferencesManager.audioOnlyMode
+        .catch { emit(false) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val rememberPosition = preferencesManager.rememberPosition
+        .catch { emit(true) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     val defaultDownloadQuality = preferencesManager.downloadQuality
+        .catch { emit("720p") }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "720p")
+
+    val volumeNormalization = preferencesManager.volumeNormalization
+        .catch { emit(false) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val pipedInstanceUrl = preferencesManager.pipedInstanceUrl
+        .catch { emit("https://pipedapi.kavin.rocks/") }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "https://pipedapi.kavin.rocks/")
 
     fun setThemeType(type: ThemeType) {
         viewModelScope.launch { preferencesManager.setTheme(type.name) }
@@ -57,5 +72,13 @@ class SettingsViewModel @Inject constructor(
 
     fun setDefaultDownloadQuality(quality: String) {
         viewModelScope.launch { preferencesManager.setDownloadQuality(quality) }
+    }
+
+    fun setVolumeNormalization(enabled: Boolean) {
+        viewModelScope.launch { preferencesManager.setVolumeNormalization(enabled) }
+    }
+
+    fun setPipedInstanceUrl(url: String) {
+        viewModelScope.launch { preferencesManager.setPipedInstanceUrl(url) }
     }
 }

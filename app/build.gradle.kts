@@ -54,6 +54,9 @@ android {
     }
 
     compileOptions {
+        // NewPipeExtractor uses java.time / java.nio APIs — desugaring makes them
+        // available on minSdk 24 devices.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
@@ -126,6 +129,12 @@ dependencies {
     // Gson
     implementation("com.google.code.gson:gson:2.10.1")
 
+    // NewPipeExtractor — client-side YouTube extraction with sig/nsig JS deciphering
+    // (same engine used by NewPipe/LibreTube). Primary source for streams/search/trending.
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.2")
+    // Required for java.time / java.nio.file usage on minSdk 24 (NewPipeExtractor).
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.0.4")
+
     // Media3 ExoPlayer
     implementation("androidx.media3:media3-exoplayer:1.3.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.3.1")
@@ -152,8 +161,6 @@ dependencies {
     // WorkManager for background downloads
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("com.google.guava:guava:32.1.3-android")
-    implementation("androidx.hilt:hilt-work:1.1.0")
-    kapt("androidx.hilt:hilt-compiler:1.1.0")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

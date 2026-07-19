@@ -8,5 +8,11 @@ data class StreamFormat(
     val bitrate: Long?,
     val width: Int?,
     val height: Int?,
-    val fps: Int?
+    val fps: Int?,
+    /**
+     * True for adaptive video-only tracks (no embedded audio). These must be merged with
+     * a separate audio track via MergingMediaSource. False for progressive (muxed) streams
+     * that already contain audio.
+     */
+    val isVideoOnly: Boolean = false
 )

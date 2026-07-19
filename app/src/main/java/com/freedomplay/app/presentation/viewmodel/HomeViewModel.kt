@@ -31,6 +31,8 @@ class HomeViewModel @Inject constructor(
     private val _selectedCategory = MutableStateFlow("All")
     val selectedCategory: StateFlow<String> = _selectedCategory.asStateFlow()
 
+    private val _allTrending = MutableStateFlow<List<StreamItem>>(emptyList())
+
     init {
         loadTrending()
     }
@@ -41,7 +43,8 @@ class HomeViewModel @Inject constructor(
             _error.value = null
             repository.getTrending()
                 .onSuccess { items ->
-                    _trending.value = items
+                    _allTrending.value = items
+                    applyCategoryFilter()
                     _isLoading.value = false
                 }
                 .onFailure { e ->
@@ -52,14 +55,64 @@ class HomeViewModel @Inject constructor(
     }
 
     fun refresh() {
-        loadTrending()
+        if (_isMusicMode.value) {
+            loadMusicTrending()
+        } else {
+            loadTrending()
+        }
     }
 
     fun toggleYouTubeMusic() {
-        _isMusicMode.value = !_isMusicMode.value
+        val newMode = !_isMusicMode.value
+        _isMusicMode.value = newMode
+        if (newMode) {
+            loadMusicTrending()
+        } else {
+            applyCategoryFilter()
+        }
+    }
+
+    private fun loadMusicTrending() {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            repository.getMusicTrending()
+                .onSuccess { items ->
+                    _trending.value = items
+                    _isLoading.value = false
+                }
+                .onFailure { e ->
+                    val musicItems = _allTrending.value.filter { item ->
+                        item.title.contains("music", ignoreCase = true) ||
+                            item.title.contains("song", ignoreCase = true) ||
+                            item.title.contains("album", ignoreCase = true) ||
+                            item.uploaderName.contains("music", ignoreCase = true)
+                    }
+                    if (musicItems.isNotEmpty()) {
+                        _trending.value = musicItems
+                    } else {
+                        _error.value = e.message ?: "Failed to load music"
+                    }
+                    _isLoading.value = false
+                }
+        }
     }
 
     fun selectCategory(category: String) {
         _selectedCategory.value = category
+        applyCategoryFilter()
+    }
+
+    private fun applyCategoryFilter() {
+        val category = _selectedCategory.value
+        val all = _allTrending.value
+        _trending.value = if (category == "All") {
+            all
+        } else {
+            all.filter { item ->
+                item.title.contains(category, ignoreCase = true) ||
+                    item.uploaderName.contains(category, ignoreCase = true)
+            }
+        }
     }
 }

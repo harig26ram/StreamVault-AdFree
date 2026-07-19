@@ -5,7 +5,6 @@ import path from "node:path"
 import { type Plugin, type PluginModule, tool } from "@opencode-ai/plugin"
 
 import { buildExternalPreviewUrl, isPreviewable, registerExternalPreviewFile, startServer } from "./server"
-import { tui } from "./tui"
 
 const DEFAULT_PORT = Number(process.env.PREVIEW_PORT ?? "17890")
 const DEFAULT_HOST = process.env.PREVIEW_HOST ?? "localhost"
@@ -178,4 +177,4 @@ export const server: Plugin = async ({ project, client, $, serverUrl }) => {
 /** @deprecated Use `server` instead */
 export const PreviewPlugin = server
 
-export default { id: "opencode-preview", server, tui } as unknown as PluginModule
+export default { id: "opencode-preview", server } satisfies PluginModule
