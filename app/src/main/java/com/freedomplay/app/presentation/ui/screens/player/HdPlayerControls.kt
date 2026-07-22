@@ -58,8 +58,8 @@ fun HdPlayerControls(
 
     val durationSeconds = duration?.toFloat() ?: 0f
     val sliderValue = if (isDragging) sliderPosition else currentPosition
-    val elapsedFormatted = TimeUtils.formatDuration((sliderValue / 1000f).toLong())
-    val durationFormatted = TimeUtils.formatDuration((durationSeconds / 1000f).toLong())
+    val elapsedFormatted = TimeUtils.formatDuration(sliderValue.toLong())
+    val durationFormatted = TimeUtils.formatDuration(durationSeconds.toLong())
 
     AnimatedVisibility(
         visible = visible,

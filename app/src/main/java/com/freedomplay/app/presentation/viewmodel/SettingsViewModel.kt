@@ -3,9 +3,13 @@ package com.freedomplay.app.presentation.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.freedomplay.app.data.local.preferences.PreferencesManager
+import com.freedomplay.app.data.manager.InstanceManager
 import com.freedomplay.app.presentation.ui.theme.ThemeType
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -14,7 +18,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val preferencesManager: PreferencesManager
+    private val preferencesManager: PreferencesManager,
+    private val instanceManager: InstanceManager
 ) : ViewModel() {
 
     val themeType = preferencesManager.theme
@@ -49,6 +54,35 @@ class SettingsViewModel @Inject constructor(
     val pipedInstanceUrl = preferencesManager.pipedInstanceUrl
         .catch { emit("https://pipedapi.kavin.rocks/") }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "https://pipedapi.kavin.rocks/")
+
+    val signedIn = preferencesManager.hasYouTubeCookies
+        .catch { emit(false) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _instanceHealth = MutableStateFlow<Map<String, String>>(emptyMap())
+    val instanceHealth: StateFlow<Map<String, String>> = _instanceHealth.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            instanceManager.initialize()
+            loadInstanceHealth()
+        }
+    }
+
+    fun loadInstanceHealth() {
+        _instanceHealth.value = instanceManager.getDebugInfo()
+    }
+
+    fun resetInstanceHealth() {
+        _instanceHealth.value.keys.forEach { url ->
+            instanceManager.resetInstance(url)
+        }
+        loadInstanceHealth()
+    }
+
+    fun saveYouTubeCookies(cookies: String?) {
+        viewModelScope.launch { preferencesManager.setYouTubeCookies(cookies) }
+    }
 
     fun setThemeType(type: ThemeType) {
         viewModelScope.launch { preferencesManager.setTheme(type.name) }

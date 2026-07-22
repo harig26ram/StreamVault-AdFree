@@ -45,6 +45,13 @@ class NewPipeStreamSource @Inject constructor() {
             val videoOnly = safe { extractor.videoOnlyStreams }.orEmpty()
             val audios = safe { extractor.audioStreams }.orEmpty()
 
+            CrashLogger.d("NewPipe raw streams: ${muxed.size} muxed, ${videoOnly.size} videoOnly, ${audios.size} audio")
+            // getResolution() is called explicitly: the deprecated public field `resolution`
+            // shadows the non-deprecated @Nonnull getter in Kotlin property resolution.
+            muxed.take(2).forEach { CrashLogger.d("  muxed: isUrl=${it.isUrl} content=${it.content.take(80)} res=${it.getResolution()} type=${it.format}") }
+            videoOnly.take(2).forEach { CrashLogger.d("  videoOnly: isUrl=${it.isUrl} content=${it.content.take(80)} res=${it.getResolution()} type=${it.format}") }
+            audios.take(2).forEach { CrashLogger.d("  audio: isUrl=${it.isUrl} content=${it.content.take(80)} br=${it.averageBitrate} type=${it.format}") }
+
             val videoFormats = (muxed.mapNotNull { it.toStreamFormat(videoOnly = false) } +
                 videoOnly.mapNotNull { it.toStreamFormat(videoOnly = true) })
                 .sortedByDescending { it.height ?: 0 }
@@ -52,7 +59,12 @@ class NewPipeStreamSource @Inject constructor() {
             val audioFormats = audios.mapNotNull { it.toStreamFormat() }
                 .sortedByDescending { it.bitrate ?: 0L }
 
-            if (videoFormats.isEmpty() && audioFormats.isEmpty()) {
+            val dashUrl = safe { extractor.dashMpdUrl }?.takeIf { it.isNotBlank() }
+            val hlsUrl = safe { extractor.hlsUrl }?.takeIf { it.isNotBlank() }
+
+            // Livestreams expose only an HLS (sometimes DASH) manifest and no progressive/
+            // adaptive tracks. Keep those: the player plays them via HlsMediaSource/DashMediaSource.
+            if (videoFormats.isEmpty() && audioFormats.isEmpty() && dashUrl == null && hlsUrl == null) {
                 CrashLogger.d("NewPipe returned no playable streams for $videoId")
                 return null
             }
@@ -73,13 +85,13 @@ class NewPipeStreamSource @Inject constructor() {
                 views = safe { extractor.viewCount }?.takeIf { it >= 0 },
                 uploaded = null,
                 uploadDate = safe { extractor.textualUploadDate },
-                description = safe { extractor.description?.content },
+                description = safe { extractor.description.content },
                 videoStreams = videoFormats,
                 audioStreams = audioFormats,
                 livestream = isLive,
                 subtitles = safe { extractor.subtitlesDefault }.orEmpty().mapNotNull { it.toSubtitle() },
-                dashManifestUrl = safe { extractor.dashMpdUrl }?.takeIf { it.isNotBlank() },
-                hlsManifestUrl = safe { extractor.hlsUrl }?.takeIf { it.isNotBlank() }
+                dashManifestUrl = dashUrl,
+                hlsManifestUrl = hlsUrl
             )
         } catch (e: Exception) {
             CrashLogger.d("NewPipe getStream failed for $videoId: ${e.message}")
@@ -125,12 +137,14 @@ class NewPipeStreamSource @Inject constructor() {
     // --- Mapping helpers -------------------------------------------------------------------
 
     private fun VideoStream.toStreamFormat(videoOnly: Boolean): StreamFormat? {
-        if (!isUrl) return null
-        val streamUrl = content?.takeIf { it.isNotBlank() } ?: return null
-        val h = parseHeight(resolution)
+        val streamUrl = content.takeIf { it.isNotBlank() } ?: return null
+        if (!isUrl && !streamUrl.startsWith("http")) return null
+        // getResolution() is called explicitly: the deprecated public field `resolution`
+        // shadows the non-deprecated @Nonnull getter in Kotlin property resolution.
+        val h = parseHeight(getResolution())
         return StreamFormat(
             url = streamUrl,
-            quality = resolution?.takeIf { it.isNotBlank() } ?: h?.let { "${it}p" },
+            quality = getResolution().takeIf { it.isNotBlank() } ?: h?.let { "${it}p" },
             mimeType = safe { format?.mimeType },
             codec = safe { format?.getName() },
             bitrate = null,
@@ -142,8 +156,8 @@ class NewPipeStreamSource @Inject constructor() {
     }
 
     private fun AudioStream.toStreamFormat(): StreamFormat? {
-        if (!isUrl) return null
-        val streamUrl = content?.takeIf { it.isNotBlank() } ?: return null
+        val streamUrl = content.takeIf { it.isNotBlank() } ?: return null
+        if (!isUrl && !streamUrl.startsWith("http")) return null
         val br = averageBitrate.takeIf { it > 0 }?.toLong()
         return StreamFormat(
             url = streamUrl,
@@ -191,7 +205,7 @@ class NewPipeStreamSource @Inject constructor() {
     private fun bestImageUrl(images: List<Image>?): String? {
         if (images.isNullOrEmpty()) return null
         val best = images.maxByOrNull { it.height.takeIf { h -> h > 0 } ?: 0 } ?: images.last()
-        return best.url?.let { if (it.startsWith("//")) "https:$it" else it }
+        return best.url.let { if (it.startsWith("//")) "https:$it" else it }
     }
 
     private fun parseHeight(resolution: String?): Int? {

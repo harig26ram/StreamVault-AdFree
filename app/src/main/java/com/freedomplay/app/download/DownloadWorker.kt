@@ -2,6 +2,7 @@ package com.freedomplay.app.download
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.ServiceInfo
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
@@ -15,9 +16,9 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.freedomplay.app.data.api.piped.PipedApiService
-import com.freedomplay.app.data.api.piped.PipedStream
 import com.freedomplay.app.data.local.db.DownloadDao
 import com.freedomplay.app.data.local.db.DownloadEntity
+import com.freedomplay.app.data.repository.StreamRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.Dispatchers
@@ -27,15 +28,30 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlin.math.abs
 
 @HiltWorker
 class DownloadWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val pipedApi: PipedApiService,
+    private val streamRepository: StreamRepository,
     private val okHttpClient: OkHttpClient,
     private val downloadDao: DownloadDao
 ) : CoroutineWorker(appContext, workerParams) {
+
+    /**
+     * Source-agnostic stream descriptor so both StreamRepository (domain StreamFormat)
+     * and the legacy Piped fallback (PipedStream) feed the same download/mux pipeline.
+     */
+    private data class DownloadableStream(
+        val url: String,
+        val mimeType: String?,
+        val height: Int?,
+        val bitrate: Long?,
+        /** True for adaptive video-only tracks that need a separate audio track muxed in. */
+        val isVideoOnly: Boolean
+    )
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val videoId = inputData.getString(KEY_VIDEO_ID) ?: return@withContext Result.failure()
@@ -50,16 +66,40 @@ class DownloadWorker @AssistedInject constructor(
             setProgress(workDataOf(KEY_PROGRESS to 5))
             insertOrUpdate(videoId, title, channelName, thumbnailUrl, quality, "DOWNLOADING", 5)
 
-            val streamResponse = pipedApi.getVideoStreams(videoId)
-
-            if (streamResponse.livestream == true) {
-                return@withContext Result.failure()
-            }
+            val candidates = fetchStreams(videoId) ?: return@withContext Result.failure()
+            val (audioCandidates, videoCandidates) = candidates
 
             setProgress(workDataOf(KEY_PROGRESS to 15))
 
-            val audioStream = selectAudioStream(streamResponse.audioStreams)
-            val videoStream = selectVideoStream(streamResponse.videoStreams, quality)
+            var audioStream: DownloadableStream? = null
+            var videoStream: DownloadableStream? = null
+
+            if (quality.equals("Audio", ignoreCase = true)) {
+                audioStream = selectAudioStream(audioCandidates)
+                if (audioStream == null) {
+                    // Some sources return only a single muxed (audio+video) progressive
+                    // stream and zero separate audio tracks. Save that muxed file as-is
+                    // rather than failing the "Audio" download.
+                    videoStream = videoCandidates.filter { !it.isVideoOnly }
+                        .maxByOrNull { it.height ?: 0 }
+                }
+            } else {
+                videoStream = selectVideoStream(videoCandidates, quality)
+                if (videoStream?.isVideoOnly == true) {
+                    audioStream = selectAudioStream(audioCandidates)
+                    if (audioStream == null) {
+                        // Video-only track but no audio track to mux with it: prefer a
+                        // muxed stream (already contains audio) if one exists.
+                        val muxed = selectVideoStream(videoCandidates.filter { !it.isVideoOnly }, quality)
+                        if (muxed != null) videoStream = muxed
+                    }
+                }
+                // If videoStream is muxed (isVideoOnly == false) it already carries audio,
+                // so it is downloaded alone with no mux step.
+                if (videoStream == null) {
+                    audioStream = selectAudioStream(audioCandidates)
+                }
+            }
 
             if (audioStream == null && videoStream == null) {
                 return@withContext Result.failure()
@@ -79,13 +119,13 @@ class DownloadWorker @AssistedInject constructor(
             setProgress(workDataOf(KEY_PROGRESS to 20))
 
             if (audioStream != null && audioFile != null) {
-                downloadFile(audioStream.url ?: return@withContext Result.failure(), audioFile, 20, 55)
+                downloadFile(audioStream.url, audioFile, 20, 55)
             }
 
             setProgress(workDataOf(KEY_PROGRESS to 55))
 
             if (videoStream != null && videoFile != null) {
-                downloadFile(videoStream.url ?: return@withContext Result.failure(), videoFile, 55, 85)
+                downloadFile(videoStream.url, videoFile, 55, 85)
             }
 
             setProgress(workDataOf(KEY_PROGRESS to 85))
@@ -127,7 +167,7 @@ class DownloadWorker @AssistedInject constructor(
         inputData.getString(KEY_TITLE) ?: "Downloading"
     )
 
-    private fun createForegroundInfo(title: String): ForegroundInfo {
+private fun createForegroundInfo(title: String): ForegroundInfo {
         val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = android.app.NotificationChannel(
                 CHANNEL_ID, "Downloads",
@@ -150,7 +190,15 @@ class DownloadWorker @AssistedInject constructor(
                 .setOngoing(true)
                 .build()
         }
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+} else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
     }
 
     private suspend fun setForegroundSafely(info: ForegroundInfo) {
@@ -187,29 +235,83 @@ class DownloadWorker @AssistedInject constructor(
         }
     }
 
-    private fun selectAudioStream(streams: List<PipedStream>?): PipedStream? {
-        return streams?.filter { it.mimeType?.startsWith("audio") == true }
-            ?.maxByOrNull { it.bitrate ?: 0 }
+    /**
+     * Resolves audio/video stream candidates for [videoId].
+     *
+     * Primary source is [StreamRepository] (cascading NewPipeExtractor -> Piped ->
+     * InnerTube -> Invidious fallback); the direct Piped API is only used if the
+     * repository yields nothing, since most public Piped instances are unreliable.
+     *
+     * @return Pair(audioCandidates, videoCandidates), or null if the video cannot
+     *         be downloaded (e.g. livestream or no usable streams from any source).
+     */
+    private suspend fun fetchStreams(
+        videoId: String
+    ): Pair<List<DownloadableStream>, List<DownloadableStream>>? {
+        val repoStream = runCatching { streamRepository.getStreams(videoId) }
+            .getOrNull()?.getOrNull()
+        if (repoStream != null) {
+            if (repoStream.livestream == true) return null
+            val audio = repoStream.audioStreams
+                .filter { !it.url.isNullOrBlank() }
+                .map { DownloadableStream(it.url!!, it.mimeType, it.height, it.bitrate, isVideoOnly = false) }
+            val video = repoStream.videoStreams
+                .filter { !it.url.isNullOrBlank() }
+                .map { DownloadableStream(it.url!!, it.mimeType, it.height, it.bitrate, it.isVideoOnly) }
+            if (audio.isNotEmpty() || video.isNotEmpty()) return audio to video
+        }
+
+        // Legacy fallback: direct Piped API. Exceptions propagate to doWork's catch
+        // so transient network failures still trigger Result.retry().
+        val response = pipedApi.getVideoStreams(videoId)
+        if (response.livestream == true) return null
+        val audio = response.audioStreams.orEmpty()
+            .filter { it.mimeType?.startsWith("audio") == true && !it.url.isNullOrBlank() }
+            .map { DownloadableStream(it.url!!, it.mimeType, it.height, it.bitrate, isVideoOnly = false) }
+        // Piped's videoStreams are adaptive (video-only) tracks, matching the previous
+        // behavior of always muxing them with a separate audio track.
+        val video = response.videoStreams.orEmpty()
+            .filter { it.mimeType?.startsWith("video") == true && !it.url.isNullOrBlank() && it.height != null }
+            .map { DownloadableStream(it.url!!, it.mimeType, it.height, it.bitrate, isVideoOnly = true) }
+        if (audio.isEmpty() && video.isEmpty()) return null
+        return audio to video
     }
 
-    private fun selectVideoStream(streams: List<PipedStream>?, quality: String): PipedStream? {
+    private fun selectAudioStream(streams: List<DownloadableStream>): DownloadableStream? {
+        // Prefer MP4/M4A audio: MediaMuxer outputs MPEG-4, and opus/webm tracks
+        // frequently fail to mux into it.
+        val mp4Audio = streams.filter {
+            it.mimeType?.contains("mp4") == true || it.mimeType?.contains("m4a") == true
+        }
+        return mp4Audio.ifEmpty { streams }.maxByOrNull { it.bitrate ?: 0L }
+    }
+
+    private fun selectVideoStream(streams: List<DownloadableStream>, quality: String): DownloadableStream? {
         val targetHeight = when (quality) {
             "144p" -> 144; "240p" -> 240; "360p" -> 360
             "480p" -> 480; "720p" -> 720; "1080p" -> 1080
             "1440p" -> 1440; "2160p" -> 2160
             else -> 720
         }
-        return streams?.filter { it.mimeType?.startsWith("video") == true }
-            ?.filter { it.height != null && it.width != null }
-            ?.minByOrNull { kotlin.math.abs(it.height!! - targetHeight) }
+        return streams.filter { it.height != null }
+            .sortedWith(
+                compareBy(
+                    { abs(it.height!! - targetHeight) },
+                    // Tie-break in favor of MP4/AVC so the MPEG-4 mux step succeeds.
+                    { if (it.mimeType?.contains("mp4") == true) 0 else 1 }
+                )
+            )
+            .firstOrNull()
+            ?: streams.firstOrNull()
     }
 
     private fun getExtension(mimeType: String?): String {
+        val mime = mimeType ?: return "mp4"
         return when {
-            mimeType?.contains("mp4") == true || mimeType?.contains("mp4a") == true -> "mp4"
-            mimeType?.contains("webm") == true || mimeType?.contains("opus") == true -> "webm"
-            mimeType?.contains("m4a") == true -> "m4a"
-            mimeType?.contains("3gpp") == true -> "3gp"
+            mime.startsWith("audio") ->
+                if (mime.contains("webm") || mime.contains("opus")) "webm" else "m4a"
+            mime.contains("webm") -> "webm"
+            mime.contains("3gpp") -> "3gp"
             else -> "mp4"
         }
     }

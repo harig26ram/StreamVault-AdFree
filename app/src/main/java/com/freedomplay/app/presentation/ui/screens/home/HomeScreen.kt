@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,7 +23,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,9 +31,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -62,7 +57,6 @@ fun HomeScreen(
     onVideoClick: (StreamItem) -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
-    val isMusicMode by viewModel.isMusicMode.collectAsStateWithLifecycle()
     val trending by viewModel.trending.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
@@ -82,22 +76,12 @@ fun HomeScreen(
             }
 
             item {
-                YouTubeMusicToggle(
-                    isMusic = isMusicMode,
-                    onToggle = { viewModel.toggleYouTubeMusic() }
+                CategoryChipsRow(
+                    categories = categories,
+                    selectedCategory = selectedCategory,
+                    onCategorySelected = { viewModel.selectCategory(it) }
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            if (!isMusicMode) {
-                item {
-                    CategoryChipsRow(
-                        categories = categories,
-                        selectedCategory = selectedCategory,
-                        onCategorySelected = { viewModel.selectCategory(it) }
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
             }
 
             when {
@@ -113,61 +97,12 @@ fun HomeScreen(
                     }
                 }
                 else -> {
-                    if (isMusicMode) {
-                        item {
-                            Text(
-                                text = "New Releases",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
-                        }
-                        item {
-                            MusicGridSection(
-                                items = trending.take(6),
-                                onVideoClick = onVideoClick
-                            )
-                        }
-                        item {
-                            Text(
-                                text = "Moods & Genres",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
-                        }
-                        item {
-                            MoodChipsRow()
-                            Spacer(modifier = Modifier.height(16.dp))
-                        }
-                        if (trending.size > 6) {
-                            item {
-                                Text(
-                                    text = "Recommended",
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                                )
-                            }
-                        }
-                        items(trending.drop(6)) { video ->
-                            VideoCard(
-                                video = video,
-                                onClick = { onVideoClick(video) },
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                            )
-                        }
-                    } else {
-                        items(trending) { video ->
-                            VideoCard(
-                                video = video,
-                                onClick = { onVideoClick(video) },
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                            )
-                        }
+                    items(trending) { video ->
+                        VideoCard(
+                            video = video,
+                            onClick = { onVideoClick(video) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                        )
                     }
                 }
             }
@@ -175,48 +110,7 @@ fun HomeScreen(
     }
 }
 
-@Composable
-private fun YouTubeMusicToggle(
-    isMusic: Boolean,
-    onToggle: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.Center
-    ) {
-        SingleChoiceSegmentedButtonRow {
-            SegmentedButton(
-                selected = !isMusic,
-                onClick = { if (isMusic) onToggle() },
-                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                    activeContentColor = MaterialTheme.colorScheme.primary,
-                    inactiveContainerColor = MaterialTheme.colorScheme.surface,
-                    inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            ) {
-                Text("YouTube", style = MaterialTheme.typography.labelLarge)
-            }
-            SegmentedButton(
-                selected = isMusic,
-                onClick = { if (!isMusic) onToggle() },
-                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                colors = SegmentedButtonDefaults.colors(
-                    activeContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                    activeContentColor = MaterialTheme.colorScheme.primary,
-                    inactiveContainerColor = MaterialTheme.colorScheme.surface,
-                    inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            ) {
-                Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                Text("Music", style = MaterialTheme.typography.labelLarge)
-            }
-        }
-    }
-}
+
 
 @Composable
 private fun CategoryChipsRow(
@@ -298,62 +192,9 @@ private fun ShimmerVideoCard() {
     }
 }
 
-@Composable
-private fun MusicGridSection(
-    items: List<StreamItem>,
-    onVideoClick: (StreamItem) -> Unit
-) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        for (i in items.indices step 2) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (i < items.size) {
-                    VideoCard(
-                        video = items[i],
-                        onClick = { onVideoClick(items[i]) },
-                        modifier = Modifier.weight(1f)
-                    )
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-                if (i + 1 < items.size) {
-                    VideoCard(
-                        video = items[i + 1],
-                        onClick = { onVideoClick(items[i + 1]) },
-                        modifier = Modifier.weight(1f)
-                    )
-                } else {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-    }
-}
 
-@Composable
-private fun MoodChipsRow() {
-    val moods = listOf("Chill", "Focus", "Workout", "Party", "Sleep", "Romance")
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(moods) { mood ->
-            FilterChip(
-                selected = false,
-                onClick = { },
-                enabled = false,
-                label = { Text(mood) },
-                colors = FilterChipDefaults.filterChipColors(
-                    disabledContainerColor = MaterialTheme.colorScheme.surface,
-                    disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            )
-        }
-    }
-}
+
+
 
 @Composable
 private fun ErrorState(

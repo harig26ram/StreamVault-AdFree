@@ -16,9 +16,6 @@ class HomeViewModel @Inject constructor(
     private val repository: StreamRepository
 ) : ViewModel() {
 
-    private val _isMusicMode = MutableStateFlow(false)
-    val isMusicMode: StateFlow<Boolean> = _isMusicMode.asStateFlow()
-
     private val _trending = MutableStateFlow<List<StreamItem>>(emptyList())
     val trending: StateFlow<List<StreamItem>> = _trending.asStateFlow()
 
@@ -55,47 +52,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun refresh() {
-        if (_isMusicMode.value) {
-            loadMusicTrending()
-        } else {
-            loadTrending()
-        }
-    }
-
-    fun toggleYouTubeMusic() {
-        val newMode = !_isMusicMode.value
-        _isMusicMode.value = newMode
-        if (newMode) {
-            loadMusicTrending()
-        } else {
-            applyCategoryFilter()
-        }
-    }
-
-    private fun loadMusicTrending() {
-        viewModelScope.launch {
-            _isLoading.value = true
-            _error.value = null
-            repository.getMusicTrending()
-                .onSuccess { items ->
-                    _trending.value = items
-                    _isLoading.value = false
-                }
-                .onFailure { e ->
-                    val musicItems = _allTrending.value.filter { item ->
-                        item.title.contains("music", ignoreCase = true) ||
-                            item.title.contains("song", ignoreCase = true) ||
-                            item.title.contains("album", ignoreCase = true) ||
-                            item.uploaderName.contains("music", ignoreCase = true)
-                    }
-                    if (musicItems.isNotEmpty()) {
-                        _trending.value = musicItems
-                    } else {
-                        _error.value = e.message ?: "Failed to load music"
-                    }
-                    _isLoading.value = false
-                }
-        }
+        loadTrending()
     }
 
     fun selectCategory(category: String) {

@@ -1,0 +1,3 @@
+-rw------- 1 u0_a238 u0_a238 24576 2026-07-20 20:50 app_webview/Default/Cookies
+-rw------- 1 u0_a238 u0_a238 0 2026-07-20 20:50 app_webview/Default/Cookies-journal
+--- SAPISID/LOGIN present? --- 

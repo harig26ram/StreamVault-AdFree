@@ -3,10 +3,12 @@ package com.freedomplay.app.presentation.ui.components
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
+import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
@@ -30,6 +32,7 @@ data class BottomNavItem(
 val bottomNavItems = listOf(
     BottomNavItem("Home", Screen.Home.route, Icons.Filled.Home, Icons.Outlined.Home),
     BottomNavItem("Search", Screen.Search.route, Icons.Filled.Search, Icons.Outlined.Search),
+    BottomNavItem("Music", Screen.MusicHome.route, Icons.Filled.MusicNote, Icons.Outlined.MusicNote),
     BottomNavItem("Library", Screen.Library.route, Icons.Filled.LibraryMusic, Icons.Outlined.LibraryMusic),
     BottomNavItem("Settings", Screen.Settings.route, Icons.Filled.Settings, Icons.Outlined.Settings)
 )

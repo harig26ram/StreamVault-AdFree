@@ -135,6 +135,10 @@ dependencies {
     // Required for java.time / java.nio.file usage on minSdk 24 (NewPipeExtractor).
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.0.4")
 
+    // RxJava — used by the ported NewPipe poToken WebView generator (BotGuard integrity).
+    implementation("io.reactivex.rxjava3:rxjava:3.1.8")
+    implementation("io.reactivex.rxjava3:rxandroid:3.0.2")
+
     // Media3 ExoPlayer
     implementation("androidx.media3:media3-exoplayer:1.3.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.3.1")

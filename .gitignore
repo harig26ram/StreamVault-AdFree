@@ -17,3 +17,15 @@ local.properties
 *.keystore
 secrets.properties
 *.log
+
+# Local build/test scratch helpers (Cowork session, 2026-07-20)
+run_build.bat
+install_run.bat
+emu.bat
+build_output.log
+install_output.log
+applog.txt
+logcat.txt
+full_logcat.txt
+playstate.txt
+emu_screen.png

@@ -17,5 +17,7 @@ data class Stream(
     /** Optional DASH manifest URL (adaptive). Preferred by the player when present. */
     val dashManifestUrl: String? = null,
     /** Optional HLS manifest URL (live streams). */
-    val hlsManifestUrl: String? = null
+    val hlsManifestUrl: String? = null,
+    /** Related/recommended videos for this video (from /next endpoint or Piped streams). */
+    val relatedStreams: List<com.freedomplay.app.domain.model.StreamItem> = emptyList()
 )

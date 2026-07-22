@@ -1,7 +1,6 @@
 package com.freedomplay.app.di
 
 import android.content.Context
-import com.freedomplay.app.data.api.invidious.InvidiousApiService
 import com.freedomplay.app.data.api.piped.PipedApiService
 import com.google.gson.Gson
 import dagger.Module
@@ -25,10 +24,6 @@ import javax.inject.Singleton
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class PipedRetrofit
-
-@Qualifier
-@Retention(AnnotationRetention.BINARY)
-annotation class InvidiousRetrofit
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -101,24 +96,8 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    @InvidiousRetrofit
-    fun provideInvidiousRetrofit(okHttpClient: OkHttpClient, gson: Gson): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl(INVIDIOUS_FALLBACK_URLS.first())
-            .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create(gson))
-            .build()
-    }
-
-    @Provides
-    @Singleton
     fun providePipedApiService(@PipedRetrofit retrofit: Retrofit): PipedApiService {
         return retrofit.create(PipedApiService::class.java)
     }
 
-    @Provides
-    @Singleton
-    fun provideInvidiousApiService(@InvidiousRetrofit retrofit: Retrofit): InvidiousApiService {
-        return retrofit.create(InvidiousApiService::class.java)
-    }
 }

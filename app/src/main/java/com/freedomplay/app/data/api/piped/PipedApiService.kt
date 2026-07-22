@@ -18,7 +18,8 @@ data class PipedVideoResponse(
     @SerializedName("videoStreams") val videoStreams: List<PipedStream>? = null,
     @SerializedName("audioStreams") val audioStreams: List<PipedStream>? = null,
     @SerializedName("livestream") val livestream: Boolean? = null,
-    @SerializedName("subtitles") val subtitle: List<PipedSubtitle>? = null
+    @SerializedName("subtitles") val subtitle: List<PipedSubtitle>? = null,
+    @SerializedName("relatedStreams") val relatedStreams: List<PipedSearchItem>? = null
 )
 
 data class PipedStream(

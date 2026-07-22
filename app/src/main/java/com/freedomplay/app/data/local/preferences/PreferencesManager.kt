@@ -38,6 +38,36 @@ class PreferencesManager @Inject constructor(
         val PIPED_INSTANCE_URL = stringPreferencesKey("piped_instance_url")
         val FAVORITES = stringSetPreferencesKey("favorites")
         val SAVED_POSITIONS = stringPreferencesKey("saved_positions")
+        val YT_COOKIES = stringPreferencesKey("yt_cookies")
+    }
+
+    // YouTube account cookies captured at login (main thread, where CookieManager works) and read
+    // back synchronously here — reliable, unlike CookieManager from a background/feed thread.
+    @Volatile private var cachedYtCookies: String? = null
+    @Volatile private var ytCookiesLoaded = false
+
+    val hasYouTubeCookies: Flow<Boolean> = dataStore.data.map { prefs ->
+        !prefs[Keys.YT_COOKIES].isNullOrBlank()
+    }
+
+    fun youtubeCookiesBlocking(): String? {
+        if (!ytCookiesLoaded) {
+            cachedYtCookies = try {
+                kotlinx.coroutines.runBlocking { dataStore.data.first()[Keys.YT_COOKIES] }
+            } catch (e: Exception) {
+                null
+            }
+            ytCookiesLoaded = true
+        }
+        return cachedYtCookies?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun setYouTubeCookies(value: String?) {
+        cachedYtCookies = value
+        ytCookiesLoaded = true
+        dataStore.edit { prefs ->
+            if (value.isNullOrBlank()) prefs.remove(Keys.YT_COOKIES) else prefs[Keys.YT_COOKIES] = value
+        }
     }
 
     val theme: Flow<String> = dataStore.data.map { prefs ->

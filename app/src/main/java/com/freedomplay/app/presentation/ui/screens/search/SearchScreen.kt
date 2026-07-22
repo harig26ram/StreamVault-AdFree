@@ -68,7 +68,6 @@ fun SearchScreen(
 ) {
     val query by viewModel.query.collectAsStateWithLifecycle()
     val results by viewModel.displayedResults.collectAsStateWithLifecycle()
-    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()

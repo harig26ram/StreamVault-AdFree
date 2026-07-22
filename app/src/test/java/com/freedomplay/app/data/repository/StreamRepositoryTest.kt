@@ -5,7 +5,7 @@ import org.junit.Test
 /**
  * The original Retrofit-based unit tests were removed: [StreamRepository] no longer talks to
  * the injected [com.freedomplay.app.data.api.piped.PipedApiService] /
- * [com.freedomplay.app.data.api.invidious.InvidiousApiService] Retrofit services. It now uses
+ * Retrofit services. It now uses
  * NewPipeExtractor as the primary source with raw-OkHttp Piped/Invidious/InnerTube fallbacks,
  * none of which are exercised through those mockable interfaces.
  *

@@ -9,6 +9,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.freedomplay.app.presentation.ui.screens.home.HomeScreen
 import com.freedomplay.app.presentation.ui.screens.library.LibraryScreen
+import com.freedomplay.app.presentation.ui.screens.music.MusicScreen
 import com.freedomplay.app.presentation.ui.screens.player.PlayerScreen
 import com.freedomplay.app.presentation.ui.screens.search.SearchScreen
 import com.freedomplay.app.presentation.ui.screens.settings.SettingsScreen
@@ -50,6 +51,15 @@ fun FreedomPlayNavGraph(
 
         composable(Screen.Settings.route) {
             SettingsScreen()
+        }
+
+        composable(Screen.MusicHome.route) {
+            MusicScreen(
+                onVideoClick = { video ->
+                    onVideoStarted(video.videoId, video.title, video.thumbnail)
+                    navController.navigate(Screen.Player.createRoute(video.videoId))
+                }
+            )
         }
 
         composable(

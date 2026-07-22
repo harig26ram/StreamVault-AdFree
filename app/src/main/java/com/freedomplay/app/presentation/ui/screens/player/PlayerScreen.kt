@@ -1,8 +1,7 @@
 package com.freedomplay.app.presentation.ui.screens.player
 
-import android.content.Intent
-import android.content.pm.ActivityInfo
-import android.content.res.Configuration
+import android.app.PictureInPictureParams
+import android.util.Rational
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
@@ -18,20 +17,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,8 +36,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -48,40 +44,49 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.activity.ComponentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.freedomplay.app.presentation.ui.components.formatViews
 import com.freedomplay.app.presentation.viewmodel.PlayerViewModel
-import com.freedomplay.app.domain.model.StreamFormat
 import com.freedomplay.app.util.TimeUtils
-import android.os.Build
-import androidx.activity.ComponentActivity
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import android.view.WindowInsets as AndroidWindowInsets
+import android.view.WindowInsetsController
+import android.content.pm.ActivityInfo
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 
+/**
+ * Player screen. Video always plays in HD via YouTube's own web player, confined to a pinned
+ * 16:9 surface at the top (no app buttons overlay it — YouTube's native controls, including
+ * the quality gear, are the player UI; quality is forced to max by default). Everything below
+ * the player is the app's own native UI: title, actions, description and the ad-filtered
+ * "Up Next" list. Audio-only mode uses the native ExoPlayer path for background playback.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun PlayerScreen(
     videoId: String,
@@ -92,27 +97,36 @@ fun PlayerScreen(
     val stream by viewModel.stream.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
-    val selectedQuality by viewModel.selectedQuality.collectAsStateWithLifecycle()
     val isFavorite by viewModel.isFavorite.collectAsStateWithLifecycle()
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
+    val relatedVideos by viewModel.relatedVideos.collectAsStateWithLifecycle()
+    val isLoadingRelated by viewModel.isLoadingRelated.collectAsStateWithLifecycle()
     val audioOnly by viewModel.audioOnly.collectAsStateWithLifecycle()
     val skipSilence by viewModel.skipSilence.collectAsStateWithLifecycle()
     val rememberPosition by viewModel.rememberPosition.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
-    LaunchedEffect(videoId) {
-        viewModel.loadVideo(videoId)
+    // The video currently playing. Related-video taps swap this in place (player + feed reload)
+    // instead of stacking another Player destination on the back stack.
+    var currentVideoId by rememberSaveable(videoId) { mutableStateOf(videoId) }
+
+    LaunchedEffect(currentVideoId) {
+        viewModel.loadVideo(currentVideoId)
     }
 
     LaunchedEffect(stream) {
-        stream?.let {
-            onVideoLoaded(it.title, it.thumbnailUrl ?: "")
-        }
+        stream?.let { onVideoLoaded(it.title, it.thumbnailUrl ?: "") }
     }
 
-    val context = LocalContext.current
     var isPiPActive by remember { mutableStateOf(false) }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
+    var isTouchLocked by remember { mutableStateOf(false) }
+    var showDownloadDialog by remember { mutableStateOf(false) }
+    val hdController = rememberHdPlayerController()
+    var controlsVisible by remember { mutableStateOf(true) }
+    var isFullscreen by remember { mutableStateOf(false) }
+    var hdPosition by remember { mutableFloatStateOf(0f) }
+    var hdIsPlaying by remember { mutableStateOf(true) }
 
     val activity = context as? ComponentActivity
     DisposableEffect(activity) {
@@ -125,41 +139,56 @@ fun PlayerScreen(
         }
     }
 
+    LaunchedEffect(controlsVisible) {
+        if (controlsVisible) {
+            delay(3000)
+            controlsVisible = false
+        }
+    }
+
+    LaunchedEffect(currentVideoId) {
+        while (isActive) {
+            hdController.getCurrentPosition { pos ->
+                hdPosition = pos.toFloat().coerceAtLeast(0f)
+            }
+            hdController.isPlaying { playing ->
+                hdIsPlaying = playing
+            }
+            delay(500)
+        }
+    }
+
+    fun toggleFullscreen() {
+        val act = context as? ComponentActivity ?: return
+        isFullscreen = !isFullscreen
+        if (isFullscreen) {
+            act.window.insetsController?.hide(
+                AndroidWindowInsets.Type.systemBars()
+            )
+            act.window.insetsController?.systemBarsBehavior =
+                WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            act.window.insetsController?.show(
+                AndroidWindowInsets.Type.systemBars()
+            )
+            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        if (!isPiPActive) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(horizontal = 4.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White
-                    )
-                }
-                Text(
-                    text = "Now Playing",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-
         when {
             isLoading -> {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(16f / 9f),
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(
@@ -193,7 +222,7 @@ fun PlayerScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(
-                            onClick = { viewModel.loadVideo(videoId) },
+                            onClick = { viewModel.loadVideo(currentVideoId) },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary
                             )
@@ -205,328 +234,211 @@ fun PlayerScreen(
             }
             else -> {
                 stream?.let { currentStream ->
-                    var savedPosition by remember { mutableStateOf(0L) }
-
-                    LaunchedEffect(Unit) {
-                        savedPosition = viewModel.getSavedPosition(videoId)
-                    }
-
-                    val player = remember(videoId) {
-                        ExoPlayer.Builder(context).build().apply {
-                            val bestStream = if (selectedQuality == "Auto") {
-                                currentStream.videoStreams
-                                    .filter { it.url != null }
-                                    .maxByOrNull { it.height ?: 0 }
-                            } else {
-                                currentStream.videoStreams
-                                    .filter { it.quality == selectedQuality && it.url != null }
-                                    .maxByOrNull { it.height ?: 0 }
+                    if (!audioOnly) {
+                        // ---- HD mode: pinned web player, native UI below ----
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (isFullscreen) Modifier.fillMaxSize()
+                                    else Modifier.aspectRatio(16f / 9f)
+                                )
+                                .background(Color.Black)
+                        ) {
+                            key(currentVideoId) {
+                                HdWebPlayer(
+                                    videoId = currentVideoId,
+                                    modifier = Modifier.fillMaxSize(),
+                                    controller = hdController
+                                )
                             }
-                            val streamUrl = bestStream?.url
-                                ?: currentStream.audioStreams.firstOrNull()?.url
-                                ?: ""
 
-                            val mediaItem = MediaItem.Builder()
-                                .setUri(streamUrl)
-                                .build()
-                            setMediaItem(mediaItem)
-                            prepare()
-                            playWhenReady = true
-                            if (savedPosition > 0) {
-                                seekTo(savedPosition)
-                            }
-                        }
-                    }
-
-                    LaunchedEffect(selectedQuality, currentStream) {
-                        if (selectedQuality != "Auto") {
-                            val targetStream = currentStream.videoStreams
-                                .filter { it.quality == selectedQuality && it.url != null }
-                                .maxByOrNull { it.height ?: 0 }
-                            targetStream?.url?.let { url ->
-                                val wasPlaying = player.isPlaying
-                                val pos = player.currentPosition
-                                player.setMediaItem(MediaItem.fromUri(url))
-                                player.prepare()
-                                player.seekTo(pos)
-                                player.playWhenReady = wasPlaying
-                            }
-                        }
-                    }
-
-                    LaunchedEffect(playbackSpeed) {
-                        player.setPlaybackSpeed(playbackSpeed)
-                    }
-
-                    LaunchedEffect(skipSilence) {
-                        player.skipSilenceEnabled = skipSilence
-                    }
-
-                    DisposableEffect(player) {
-                        onDispose {
-                            if (rememberPosition) {
-                                scope.launch {
-                                    viewModel.savePosition(videoId, player.currentPosition)
-                                }
-                            }
-                            player.release()
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(16f / 9f)
-                    ) {
-                        if (audioOnly) {
+                            // Tap to toggle controls
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .background(Color.Black),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        Icons.Default.Speed,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(48.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = currentStream.title,
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.padding(horizontal = 16.dp)
-                                    )
-                                }
-                            }
-                            AndroidView(
-                                factory = { ctx ->
-                                    PlayerView(ctx).apply {
-                                        this.player = player
-                                        useController = true
-                                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                                        layoutParams = FrameLayout.LayoutParams(
-                                            ViewGroup.LayoutParams.MATCH_PARENT,
-                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onTap = { controlsVisible = !controlsVisible }
                                         )
-                                        visibility = android.view.View.INVISIBLE
                                     }
-                                },
-                                modifier = Modifier.fillMaxSize()
                             )
-                        } else {
-                            AndroidView(
-                                factory = { ctx ->
-                                    PlayerView(ctx).apply {
-                                        this.player = player
-                                        useController = true
-                                        setBackgroundColor(android.graphics.Color.BLACK)
-                                        layoutParams = FrameLayout.LayoutParams(
-                                            ViewGroup.LayoutParams.MATCH_PARENT,
-                                            ViewGroup.LayoutParams.MATCH_PARENT
-                                        )
-                                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+
+                            // Double-tap skip overlay
+                            DoubleTapSkipOverlay(
+                                onSkipForward = {
+                                    hdController.getCurrentPosition { pos ->
+                                        hdController.seekTo((pos + 10).coerceAtMost(99999.0))
                                     }
                                 },
-                                modifier = Modifier.fillMaxSize()
+                                onSkipBackward = {
+                                    hdController.getCurrentPosition { pos ->
+                                        hdController.seekTo((pos - 10).coerceAtLeast(0.0))
+                                    }
+                                }
+                            )
+
+                            // Player controls overlay
+                            HdPlayerControls(
+                                duration = currentStream.duration,
+                                isPlaying = hdIsPlaying,
+                                currentPosition = hdPosition,
+                                onTogglePlay = {
+                                    if (hdIsPlaying) hdController.pause() else hdController.play()
+                                },
+                                onSeek = { posSeconds ->
+                                    hdController.seekTo(posSeconds.toDouble())
+                                },
+                                onSkipForward = {
+                                    hdController.getCurrentPosition { pos ->
+                                        hdController.seekTo((pos + 10).coerceAtMost(99999.0))
+                                    }
+                                },
+                                onSkipBackward = {
+                                    hdController.getCurrentPosition { pos ->
+                                        hdController.seekTo((pos - 10).coerceAtLeast(0.0))
+                                    }
+                                },
+                                onToggleFullscreen = { toggleFullscreen() },
+                                visible = controlsVisible
                             )
                         }
-                    }
 
-                    if (!isPiPActive) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.background)
-                            .padding(horizontal = 16.dp)
-                    ) {
-                        item {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = currentStream.title,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = buildString {
-                                    append(currentStream.uploader)
-                                    currentStream.views?.let { append(" · ${formatViews(it)} views") }
-                                },
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 14.sp
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
+                        if (!isPiPActive && !isFullscreen) {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.background)
                             ) {
-                                ActionButton(
-                                    icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                    label = "Like",
-                                    tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                                    onClick = { viewModel.toggleFavorite() }
-                                )
-                                ActionButton(
-                                    icon = Icons.Default.Share,
-                                    label = "Share",
-                                    onClick = {
-                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, "https://youtube.com/watch?v=$videoId")
-                                        }
-                                        context.startActivity(Intent.createChooser(shareIntent, "Share video"))
-                                    }
-                                )
-                                ActionButton(
-                                    icon = Icons.Default.Download,
-                                    label = "Download",
-                                    onClick = {
-                                        viewModel.startDownload(
-                                            context = context,
-                                            videoId = videoId,
-                                            title = currentStream.title,
-                                            channelName = currentStream.uploader,
-                                            thumbnailUrl = currentStream.thumbnailUrl ?: ""
+                                item {
+                                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            text = currentStream.title,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            fontSize = 17.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
                                         )
-                                    }
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            VideoSeekBar(player = player, videoId = videoId, viewModel = viewModel)
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            QualitySelector(
-                                streams = currentStream.videoStreams,
-                                selectedQuality = selectedQuality,
-                                onQualitySelected = { viewModel.selectQuality(it) }
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            PlaybackSpeedSelector(
-                                playbackSpeed = playbackSpeed,
-                                onSpeedSelected = { viewModel.setPlaybackSpeed(it) }
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                IconButton(onClick = {
-                                    val activity = context as? ComponentActivity
-                                    activity?.let { act ->
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && act.isInPictureInPictureMode.not()) {
-                                            act.enterPictureInPictureMode(
-                                                android.app.PictureInPictureParams.Builder().build()
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = buildString {
+                                                append(currentStream.uploader)
+                                                currentStream.views?.let { append(" · ${formatViews(it)} views") }
+                                            },
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 13.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceEvenly
+                                        ) {
+                                            ActionButton(
+                                                icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                label = "Like",
+                                                tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                                onClick = { viewModel.toggleFavorite() }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Share,
+                                                label = "Share",
+                                                onClick = { viewModel.shareVideo(currentVideoId) }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Download,
+                                                label = "Download",
+                                                onClick = { showDownloadDialog = true }
+                                            )
+                                            // Re-asserts max quality on YouTube's player (same call
+                                            // its own quality menu makes) — the unified-UI bridge.
+                                            ActionButton(
+                                                icon = Icons.Default.HighQuality,
+                                                label = "Max HD",
+                                                onClick = { hdController.setMaxQuality() }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.PictureInPictureAlt,
+                                                label = "PiP",
+                                                onClick = {
+                                                    val rational = Rational(16, 9)
+                                                    val params = PictureInPictureParams.Builder()
+                                                        .setAspectRatio(rational)
+                                                        .build()
+                                                    activity?.enterPictureInPictureMode(params)
+                                                }
+                                            )
+                                            ActionButton(
+                                                icon = Icons.Default.Lock,
+                                                label = "Lock",
+                                                onClick = { isTouchLocked = true }
                                             )
                                         }
                                     }
-                                }) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(
-                                            Icons.Default.PictureInPictureAlt,
-                                            contentDescription = "PiP",
-                                            tint = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text("PiP", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                                    }
                                 }
-                                IconButton(onClick = {
-                                    val activity = context as? ComponentActivity
-                                    activity?.let {
-                                        it.requestedOrientation = if (it.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
-                                            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                                        else
-                                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                                    }
-                                }) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(
-                                            Icons.Default.Fullscreen,
-                                            contentDescription = "Fullscreen",
-                                            tint = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text("Fullscreen", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-                                    }
-                                }
-                            }
-                        }
 
-                        if (!currentStream.description.isNullOrBlank()) {
-                            item {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.surface)
-                                        .clickable { isDescriptionExpanded = !isDescriptionExpanded }
-                                        .padding(12.dp)
-                                ) {
-                                    Text(
-                                        text = "Description",
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = currentStream.description ?: "",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 13.sp,
-                                        maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 3,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if ((currentStream.description?.length ?: 0) > 100) {
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = if (isDescriptionExpanded) "Show less" else "Show more",
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium
-                                        )
+                                if (!currentStream.description.isNullOrBlank()) {
+                                    item {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Column(
+                                            modifier = Modifier
+                                                .padding(horizontal = 16.dp)
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.surface)
+                                                .clickable { isDescriptionExpanded = !isDescriptionExpanded }
+                                                .padding(12.dp)
+                                        ) {
+                                            Text(
+                                                text = "Description",
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = cleanDescription(currentStream.description),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 13.sp,
+                                                maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 3,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
+                                }
+
+                                item {
+                                    RelatedVideosSection(
+                                        relatedVideos = relatedVideos,
+                                        isLoading = isLoadingRelated,
+                                        onVideoClick = { item ->
+                                            onVideoLoaded(item.title, item.thumbnail)
+                                            currentVideoId = item.videoId
+                                        }
+                                    )
                                 }
                             }
                         }
-
-                        if (currentStream.videoStreams.isNotEmpty()) {
-                            item {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = "Available Qualities",
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
+                    } else {
+                        // ---- Audio-only mode: native ExoPlayer for background playback ----
+                        AudioOnlyPlayer(
+                            videoId = currentVideoId,
+                            currentStream = currentStream,
+                            viewModel = viewModel,
+                            playbackSpeed = playbackSpeed,
+                            skipSilence = skipSilence,
+                            rememberPosition = rememberPosition,
+                            isFavorite = isFavorite,
+                            relatedVideos = relatedVideos,
+                            isLoadingRelated = isLoadingRelated,
+                            onBack = onBack,
+                            onRelatedClick = { item ->
+                                onVideoLoaded(item.title, item.thumbnail)
+                                currentVideoId = item.videoId
                             }
-                            items(currentStream.videoStreams.filter { it.quality != null }.distinctBy { it.quality }) { streamFormat ->
-                                QualityItem(
-                                    quality = streamFormat.quality ?: "Unknown",
-                                    mimeType = streamFormat.mimeType ?: "",
-                                    isSelected = selectedQuality == streamFormat.quality,
-                                    onClick = { viewModel.selectQuality(streamFormat.quality ?: "Auto") }
-                                )
-                            }
-                        }
+                        )
                     }
-                    } // end PiP guard
                 } ?: Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -538,6 +450,244 @@ fun PlayerScreen(
                         modifier = Modifier.size(48.dp)
                     )
                 }
+            }
+        }
+    }
+
+    // Touch lock: swallows every touch over the whole screen (incl. the WebView player)
+    // until unlocked. Sits above all content in this Box.
+    TouchLockOverlay(
+        isLocked = isTouchLocked,
+        onUnlock = { isTouchLocked = false }
+    )
+
+    if (showDownloadDialog) {
+        stream?.let { s ->
+            DownloadQualityDialog(
+                onDismiss = { showDownloadDialog = false },
+                onSelect = { quality ->
+                    showDownloadDialog = false
+                    viewModel.startDownload(
+                        context = context,
+                        videoId = currentVideoId,
+                        title = s.title,
+                        channelName = s.uploader,
+                        thumbnailUrl = s.thumbnailUrl ?: "",
+                        quality = quality
+                    )
+                }
+            )
+        }
+    }
+    } // end root Box
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun AudioOnlyPlayer(
+    videoId: String,
+    currentStream: com.freedomplay.app.domain.model.Stream,
+    viewModel: PlayerViewModel,
+    playbackSpeed: Float,
+    skipSilence: Boolean,
+    rememberPosition: Boolean,
+    isFavorite: Boolean,
+    relatedVideos: List<com.freedomplay.app.domain.model.StreamItem>,
+    isLoadingRelated: Boolean,
+    onBack: () -> Unit,
+    onRelatedClick: (com.freedomplay.app.domain.model.StreamItem) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var resumePosition by remember(videoId) { mutableStateOf<Long?>(null) }
+    LaunchedEffect(videoId) {
+        resumePosition = viewModel.getSavedPosition(videoId)
+    }
+
+    val player = remember(videoId) {
+        // Always pull the highest-bitrate audio rendition (matters for DASH/HLS manifests,
+        // where multiple audio qualities exist — YouTube's ceiling is Opus ~160 kbps).
+        val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context).apply {
+            parameters = buildUponParameters()
+                .setForceHighestSupportedBitrate(true)
+                .build()
+        }
+        ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .build()
+            .apply {
+                setAudioAttributes(androidx.media3.common.AudioAttributes.DEFAULT, true)
+                setHandleAudioBecomingNoisy(true)
+                playWhenReady = true
+            }
+    }
+
+    // System media session — lock-screen / notification transport controls.
+    DisposableEffect(player) {
+        val session = androidx.media3.session.MediaSession.Builder(context, player)
+            .setId("freedomplay_${videoId}_${System.currentTimeMillis()}")
+            .build()
+        onDispose { session.release() }
+    }
+
+    LaunchedEffect(currentStream, resumePosition) {
+        val startAt = resumePosition ?: return@LaunchedEffect
+        val keepPos = if (player.currentPosition > 0) player.currentPosition else startAt
+        val source = PlaybackSourceFactory.build(
+            context = context,
+            stream = currentStream,
+            selectedQuality = "Auto",
+            audioOnly = true
+        )
+        if (source != null) {
+            player.setMediaSource(source)
+            player.prepare()
+            if (keepPos > 0) player.seekTo(keepPos)
+            player.playWhenReady = true
+        }
+    }
+
+    LaunchedEffect(playbackSpeed) { player.setPlaybackSpeed(playbackSpeed) }
+    LaunchedEffect(skipSilence) { player.skipSilenceEnabled = skipSilence }
+
+    DisposableEffect(player) {
+        onDispose {
+            if (rememberPosition) {
+                scope.launch { viewModel.savePosition(videoId, player.currentPosition) }
+            }
+            player.release()
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Text(
+                text = "Now Playing",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .background(Color.Black)
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = currentStream.title,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
+            }
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = player
+                        useController = true
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                        layoutParams = FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        visibility = android.view.View.INVISIBLE
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 16.dp)
+        ) {
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = buildString {
+                        append(currentStream.uploader)
+                        currentStream.views?.let { append(" · ${formatViews(it)} views") }
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    ActionButton(
+                        icon = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        label = "Like",
+                        tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        onClick = { viewModel.toggleFavorite() }
+                    )
+                    ActionButton(
+                        icon = Icons.Default.Share,
+                        label = "Share",
+                        onClick = { viewModel.shareVideo(videoId) }
+                    )
+                    ActionButton(
+                        icon = Icons.Default.Download,
+                        label = "Download",
+                        onClick = {
+                            viewModel.startDownload(
+                                context = context,
+                                videoId = videoId,
+                                title = currentStream.title,
+                                channelName = currentStream.uploader,
+                                thumbnailUrl = currentStream.thumbnailUrl ?: ""
+                            )
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                VideoSeekBar(player = player)
+                Spacer(modifier = Modifier.height(8.dp))
+                PlaybackSpeedSelector(
+                    playbackSpeed = playbackSpeed,
+                    onSpeedSelected = { viewModel.setPlaybackSpeed(it) }
+                )
+            }
+
+            item {
+                RelatedVideosSection(
+                    relatedVideos = relatedVideos,
+                    isLoading = isLoadingRelated,
+                    onVideoClick = onRelatedClick
+                )
             }
         }
     }
@@ -562,8 +712,9 @@ private fun ActionButton(
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
-private fun VideoSeekBar(player: ExoPlayer, videoId: String, viewModel: PlayerViewModel) {
+private fun VideoSeekBar(player: ExoPlayer) {
     var isDragging by remember { mutableStateOf(false) }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var currentPosition by remember { mutableFloatStateOf(0f) }
@@ -660,108 +811,24 @@ private fun PlaybackSpeedSelector(
     }
 }
 
-@Composable
-private fun QualitySelector(
-    streams: List<StreamFormat>,
-    selectedQuality: String,
-    onQualitySelected: (String) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    val qualities = streams
-        .mapNotNull { it.quality }
-        .distinct()
-        .sortedBy { q ->
-            when {
-                q.contains("1440") -> 6
-                q.contains("1080") -> 5
-                q.contains("720") -> 4
-                q.contains("480") -> 3
-                q.contains("360") -> 2
-                q.contains("240") -> 1
-                q.contains("144") -> 0
-                else -> 0
-            }
-        }
-        .reversed()
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Quality", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
-        Box {
-            Button(
-                onClick = { expanded = true },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(selectedQuality, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp)
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Auto", color = MaterialTheme.colorScheme.onSurface) },
-                    onClick = {
-                        onQualitySelected("Auto")
-                        expanded = false
-                    }
-                )
-                qualities.forEach { quality ->
-                    DropdownMenuItem(
-                        text = { Text(quality, color = MaterialTheme.colorScheme.onSurface) },
-                        onClick = {
-                            onQualitySelected(quality)
-                            expanded = false
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QualityItem(
-    quality: String,
-    mimeType: String,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isSelected) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(
-            selected = isSelected,
-            onClick = onClick,
-            colors = RadioButtonDefaults.colors(
-                selectedColor = MaterialTheme.colorScheme.primary,
-                unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column {
-            Text(quality, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Text(mimeType, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-        }
-    }
-}
-
-
 private fun formatTime(millis: Long): String {
     return TimeUtils.formatDuration(millis / 1000)
+}
+
+/** Descriptions arrive as HTML fragments — turn breaks into newlines and drop other tags. */
+private fun cleanDescription(raw: String?): String {
+    if (raw.isNullOrBlank()) return ""
+    return raw
+        .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
+        .replace(Regex("<[^>]+>"), "")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace(Regex("&#\\d+;")) { m ->
+            m.value.removeSurrounding("&#", ";").toIntOrNull()?.toChar()?.toString() ?: m.value
+        }
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .trim()
 }

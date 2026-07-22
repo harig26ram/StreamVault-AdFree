@@ -11,9 +11,11 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import com.freedomplay.app.data.extractor.OkHttpDownloader
 import com.freedomplay.app.data.manager.InstanceManager
+import com.freedomplay.app.data.potoken.PoTokenProviderImpl
 import com.freedomplay.app.util.CrashLogger
 import dagger.hilt.android.HiltAndroidApp
 import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -69,8 +71,20 @@ class FreedomPlayApplication : Application(), Configuration.Provider, ImageLoade
         // extraction call. Cheap + synchronous (just registers the downloader).
         try {
             NewPipe.init(OkHttpDownloader(okHttpClient))
+            // Register the poToken provider so YouTube returns HD adaptive video-only + audio
+            // streams (without it, only the 360p muxed stream is available).
+            YoutubeStreamExtractor.setPoTokenProvider(PoTokenProviderImpl(applicationContext))
         } catch (e: Exception) {
             CrashLogger.e("NewPipe init failed", e)
+        }
+
+        // Pre-warm the WebView cookie store on the main thread so the repository can read the
+        // signed-in account's auth cookies (SAPISIDHASH) from background threads for personalized
+        // feeds. Without this, the first feed load (before any WebView exists) sees no cookies.
+        try {
+            android.webkit.CookieManager.getInstance().setAcceptCookie(true)
+        } catch (e: Exception) {
+            CrashLogger.d("CookieManager prewarm failed: ${e.message}")
         }
 
         appScope.launch { instanceManager.initialize() }

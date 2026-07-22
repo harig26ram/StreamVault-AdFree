@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -67,6 +68,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -81,6 +83,13 @@ import coil.Coil
 import com.freedomplay.app.presentation.ui.theme.ThemeType
 import com.freedomplay.app.presentation.viewmodel.SettingsViewModel
 import com.freedomplay.app.util.CrashLogger
+import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import java.io.File
 
 @Composable
@@ -97,6 +106,7 @@ fun SettingsScreen(
     val defaultDownloadQuality by viewModel.defaultDownloadQuality.collectAsStateWithLifecycle()
     val volumeNormalization by viewModel.volumeNormalization.collectAsStateWithLifecycle()
     val pipedInstanceUrl by viewModel.pipedInstanceUrl.collectAsStateWithLifecycle()
+    val instanceHealth by viewModel.instanceHealth.collectAsStateWithLifecycle()
 
     var showQualityMenu by remember { mutableStateOf(false) }
     var showDownloadQualityMenu by remember { mutableStateOf(false) }
@@ -106,6 +116,8 @@ fun SettingsScreen(
     var showClearCacheConfirm by remember { mutableStateOf(false) }
     var editingPipedUrl by remember { mutableStateOf(pipedInstanceUrl) }
     var showUpdateDialog by remember { mutableStateOf(false) }
+    var showLogin by remember { mutableStateOf(false) }
+    val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
 
     val packageInfo = remember {
         try {
@@ -172,6 +184,17 @@ fun SettingsScreen(
         )
     }
 
+    if (showLogin) {
+        LoginWebViewDialog(
+            onDismiss = { showLogin = false },
+            onCookiesCaptured = { cookies -> viewModel.saveYouTubeCookies(cookies) },
+            onSignedIn = {
+                showLogin = false
+                Toast.makeText(context, "Signed in to YouTube", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -186,6 +209,33 @@ fun SettingsScreen(
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold
             )
+        }
+
+        // Account Section
+        item {
+            SettingsSectionHeader(icon = Icons.Default.AccountCircle, title = "Account")
+            SettingsCard {
+                if (signedIn) {
+                    SettingsClickableRow(
+                        icon = Icons.Default.AccountCircle,
+                        title = "Signed in to YouTube",
+                        subtitle = "Personalized feeds + ad-free HD (if Premium) are active. Tap to sign out."
+                    ) {
+                        signOutYouTube {
+                            viewModel.saveYouTubeCookies(null)
+                            Toast.makeText(context, "Signed out", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    SettingsClickableRow(
+                        icon = Icons.Default.AccountCircle,
+                        title = "Sign in to YouTube",
+                        subtitle = "Use your Google account for personalized, ad-free HD playback"
+                    ) {
+                        showLogin = true
+                    }
+                }
+            }
         }
 
         // Audio Section
@@ -407,6 +457,43 @@ fun SettingsScreen(
                             ) {
                                 Text("Save")
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Instance Health Section
+        if (instanceHealth.isNotEmpty()) {
+            item {
+                SettingsSectionHeader(icon = Icons.Default.Cloud, title = "Instance Health")
+                SettingsCard {
+                    instanceHealth.entries.forEachIndexed { index, (url, healthInfo) ->
+                        InstanceHealthRow(url = url, healthInfo = healthInfo)
+                        if (index < instanceHealth.size - 1) {
+                            SettingsDivider()
+                        }
+                    }
+                    SettingsDivider()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Button(
+                            onClick = { viewModel.resetInstanceHealth() },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteForever,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Reset All")
                         }
                     }
                 }
@@ -675,6 +762,104 @@ private fun shareLogs(context: Context) {
     context.startActivity(Intent.createChooser(shareIntent, "Share Logs"))
 }
 
+@android.annotation.SuppressLint("SetJavaScriptEnabled")
+@Composable
+private fun LoginWebViewDialog(
+    onDismiss: () -> Unit,
+    onCookiesCaptured: (String) -> Unit,
+    onSignedIn: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Sign in to YouTube",
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onDismiss) {
+                    Text("Close", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    val cm = CookieManager.getInstance()
+                    cm.setAcceptCookie(true)
+                    WebView(ctx).apply {
+                        cm.setAcceptThirdPartyCookies(this, true)
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.userAgentString =
+                            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 " +
+                            "(KHTML, like Gecko) Chrome/126.0.6478.122 Mobile Safari/537.36"
+                        webViewClient = object : WebViewClient() {
+                            override fun onPageFinished(view: WebView?, url: String?) {
+                                cm.flush()
+                                // On a YouTube page (post-login redirect), capture the auth cookies
+                                // here on the main thread — CookieManager works reliably in this
+                                // context — and persist them for the feed requests.
+                                if (url != null &&
+                                    (url.startsWith("https://m.youtube.com") ||
+                                        url.startsWith("https://www.youtube.com"))
+                                ) {
+                                    val cookies = cm.getCookie("https://www.youtube.com")
+                                    if (cookies != null &&
+                                        (cookies.contains("SAPISID") ||
+                                            cookies.contains("__Secure-3PAPISID"))
+                                    ) {
+                                        onCookiesCaptured(cookies)
+                                        onSignedIn()
+                                    }
+                                }
+                            }
+                        }
+                        loadUrl(
+                            "https://accounts.google.com/ServiceLogin?service=youtube" +
+                                "&continue=https%3A%2F%2Fm.youtube.com%2F"
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+
+private fun isYouTubeSignedIn(): Boolean {
+    return try {
+        val cookies = CookieManager.getInstance().getCookie("https://www.youtube.com")
+        cookies != null && (
+            cookies.contains("SAPISID") ||
+                cookies.contains("__Secure-3PAPISID") ||
+                cookies.contains("LOGIN_INFO")
+            )
+    } catch (e: Exception) {
+        false
+    }
+}
+
+private fun signOutYouTube(onDone: () -> Unit) {
+    val cm = CookieManager.getInstance()
+    cm.removeAllCookies {
+        cm.flush()
+        onDone()
+    }
+}
+
 @Composable
 private fun SettingsSectionHeader(icon: ImageVector, title: String) {
     Row(
@@ -832,6 +1017,46 @@ private fun SettingsInfoRow(label: String, value: String) {
         Text(text = label, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
         Spacer(modifier = Modifier.weight(1f))
         Text(text = value, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun InstanceHealthRow(url: String, healthInfo: String) {
+    val host = remember(url) { Uri.parse(url).host ?: url }
+    val score = remember(healthInfo) {
+        Regex("score=([\\d.]+)").find(healthInfo)?.groupValues?.get(1)?.toFloatOrNull() ?: 0f
+    }
+    val badgeColor = when {
+        score > 0.7f -> Color(0xFF4CAF50)
+        score > 0.3f -> Color(0xFFFFC107)
+        else -> Color(0xFFF44336)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = host,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 14.sp
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = healthInfo,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11.sp
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .background(badgeColor, CircleShape)
+        )
     }
 }
 

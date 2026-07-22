@@ -1,9 +1,5 @@
 package com.freedomplay.app.data.api.invidious
 
-import retrofit2.http.GET
-import retrofit2.http.Path
-import retrofit2.http.Query
-
 data class InvidiousVideoResponse(
     val title: String? = null,
     val author: String? = null,
@@ -97,47 +93,3 @@ data class InvidiousThumbnail(
 data class InvidiousTrendingResponse(
     val items: List<InvidiousSearchItem>? = null
 )
-
-interface InvidiousApiService {
-
-    @GET("api/v1/trending")
-    suspend fun getTrending(
-        @Query("region") region: String = "US"
-    ): List<InvidiousSearchItem>
-
-    @GET("api/v1/trending")
-    suspend fun getMusicTrending(
-        @Query("region") region: String = "US",
-        @Query("features") features: String = "music"
-    ): List<InvidiousSearchItem>
-
-    @GET("api/v1/search")
-    suspend fun search(
-        @Query("q") query: String,
-        @Query("page") page: Int = 1,
-        @Query("sort_by") sortBy: String = "relevance",
-        @Query("type") type: String = "video"
-    ): List<InvidiousSearchItem>
-
-    @GET("api/v1/videos/{id}")
-    suspend fun getVideo(
-        @Path("id") videoId: String
-    ): InvidiousVideoResponse
-
-    @GET("api/v1/channels/{id}")
-    suspend fun getChannel(
-        @Path("id") channelId: String
-    ): InvidiousChannelResponse
-
-    @GET("api/v1/channels/{id}/videos")
-    suspend fun getChannelVideos(
-        @Path("id") channelId: String,
-        @Query("page") page: Int = 1,
-        @Query("sort_by") sortBy: String = "newest"
-    ): InvidiousChannelResponse
-
-    @GET("api/v1/search/suggestions")
-    suspend fun getSuggestions(
-        @Query("q") query: String
-    ): List<String>
-}

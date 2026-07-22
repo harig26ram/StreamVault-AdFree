@@ -89,6 +89,20 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Pre-warm the WebView cookie store on the main thread. Merely calling
+        // CookieManager.getInstance() does NOT load the persisted cookies — instantiating a WebView
+        // does. This makes the signed-in account's auth cookies available to the background feed
+        // requests (personalized home/music) which run right after this.
+        try {
+            android.webkit.CookieManager.getInstance().setAcceptCookie(true)
+            android.webkit.WebView(this).apply {
+                android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                destroy()
+            }
+        } catch (e: Exception) {
+            // WebView unavailable — feeds fall back to anonymous.
+        }
+
         requestNotificationPermission()
 
         pendingVideoId = parseYouTubeUrl(intent)
