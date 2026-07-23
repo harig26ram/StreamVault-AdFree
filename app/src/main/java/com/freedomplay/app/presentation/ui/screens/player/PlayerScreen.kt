@@ -127,6 +127,7 @@ fun PlayerScreen(
     var isFullscreen by remember { mutableStateOf(false) }
     var hdPosition by remember { mutableFloatStateOf(0f) }
     var hdIsPlaying by remember { mutableStateOf(true) }
+    var hdDuration by remember { mutableFloatStateOf(0f) }
 
     val activity = context as? ComponentActivity
     DisposableEffect(activity) {
@@ -148,11 +149,10 @@ fun PlayerScreen(
 
     LaunchedEffect(currentVideoId) {
         while (isActive) {
-            hdController.getCurrentPosition { pos ->
-                hdPosition = pos.toFloat().coerceAtLeast(0f)
-            }
-            hdController.isPlaying { playing ->
-                hdIsPlaying = playing
+            hdController.getState { state ->
+                hdPosition = state.position.toFloat().coerceAtLeast(0f)
+                hdDuration = state.duration.toFloat().coerceAtLeast(0f)
+                hdIsPlaying = state.playing
             }
             delay(500)
         }
@@ -246,7 +246,7 @@ fun PlayerScreen(
                                 .background(Color.Black)
                         ) {
                             key(currentVideoId) {
-                                HdWebPlayer(
+                                MinimalWebPlayer(
                                     videoId = currentVideoId,
                                     modifier = Modifier.fillMaxSize(),
                                     controller = hdController
@@ -278,11 +278,10 @@ fun PlayerScreen(
                                 }
                             )
 
-                            // Player controls overlay
-                            HdPlayerControls(
-                                duration = currentStream.duration,
-                                isPlaying = hdIsPlaying,
+                            BottomPlayerControls(
+                                duration = hdDuration,
                                 currentPosition = hdPosition,
+                                isPlaying = hdIsPlaying,
                                 onTogglePlay = {
                                     if (hdIsPlaying) hdController.pause() else hdController.play()
                                 },
@@ -300,7 +299,9 @@ fun PlayerScreen(
                                     }
                                 },
                                 onToggleFullscreen = { toggleFullscreen() },
-                                visible = controlsVisible
+                                onMaxQuality = { hdController.setMaxQuality() },
+                                visible = controlsVisible,
+                                modifier = Modifier.align(Alignment.BottomCenter)
                             )
                         }
 
