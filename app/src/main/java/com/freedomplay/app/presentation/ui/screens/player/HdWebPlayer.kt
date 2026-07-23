@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import org.json.JSONObject
 import java.io.ByteArrayInputStream
 
 /**
@@ -27,6 +28,12 @@ import java.io.ByteArrayInputStream
  * Compose UI stays the single, uniform control surface.
  */
 class HdPlayerController {
+    data class PlayerState(
+        val position: Double,
+        val duration: Double,
+        val playing: Boolean
+    )
+
     internal var webView: WebView? = null
 
     private fun exec(js: String) {
@@ -84,6 +91,36 @@ class HdPlayerController {
             "var r=false;if(p&&p.getPlayerState)r=p.getPlayerState()===1;else if(v)r=!v.paused;return r;",
         ) { result ->
             onResult(result == "true")
+        }
+    }
+
+    fun getState(onResult: (PlayerState) -> Unit) {
+        playerCallWithResult(
+            "var pos=0,dur=0,playing=false;" +
+            "if(p&&p.getCurrentTime)pos=p.getCurrentTime();else if(v)pos=v.currentTime;" +
+            "if(p&&p.getDuration)dur=p.getDuration();else if(v)dur=v.duration;" +
+            "if(p&&p.getPlayerState)playing=p.getPlayerState()===1;else if(v)playing=!v.paused;" +
+            "return JSON.stringify({p:pos,d:dur,a:playing});",
+        ) { result ->
+            try {
+                val json = JSONObject(result)
+                onResult(
+                    PlayerState(
+                        position = json.getDouble("p"),
+                        duration = json.getDouble("d"),
+                        playing = json.getBoolean("a")
+                    )
+                )
+            } catch (_: Exception) {
+                // Fallback to individual calls if batched parse fails
+                getCurrentPosition { pos ->
+                    getDuration { dur ->
+                        isPlaying { playing ->
+                            onResult(PlayerState(pos, dur, playing))
+                        }
+                    }
+                }
+            }
         }
     }
 }
