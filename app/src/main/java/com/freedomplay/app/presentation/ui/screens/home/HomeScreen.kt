@@ -61,6 +61,7 @@ fun HomeScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val isPersonalized by viewModel.isPersonalized.collectAsStateWithLifecycle()
 
     PullToRefreshBox(
         isRefreshing = isLoading,
@@ -81,6 +82,14 @@ fun HomeScreen(
                     selectedCategory = selectedCategory,
                     onCategorySelected = { viewModel.selectCategory(it) }
                 )
+                if (isPersonalized) {
+                    Text(
+                        text = "Personalized for you",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 16.dp, top = 4.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.height(12.dp))
             }
 

@@ -286,17 +286,33 @@ class StreamRepository @Inject constructor(
         }
     }
 
+    data class HomeFeedData(
+        val items: List<StreamItem>,
+        val isPersonalized: Boolean
+    )
+
     suspend fun getTrending(): Result<List<StreamItem>> = withContext(Dispatchers.IO) {
+        val personalizedHome = getPersonalizedHomeFromYouTube()
+        if (!personalizedHome.isNullOrEmpty()) {
+            CrashLogger.d("Personalized YouTube home: ${personalizedHome.size} items")
+            return@withContext Result.success(personalizedHome)
+        }
+        getGenericTrending()
+    }
+
+    suspend fun getHomeFeed(): Result<HomeFeedData> = withContext(Dispatchers.IO) {
+        val personalizedHome = getPersonalizedHomeFromYouTube()
+        if (!personalizedHome.isNullOrEmpty()) {
+            CrashLogger.d("Personalized YouTube home: ${personalizedHome.size} items")
+            return@withContext Result.success(HomeFeedData(personalizedHome, true))
+        }
+        getGenericTrending().map { HomeFeedData(it, false) }
+    }
+
+    private suspend fun getGenericTrending(): Result<List<StreamItem>> = withContext(Dispatchers.IO) {
         val result = withTimeoutOrNull(30_000L) {
             try {
                 var lastException: Exception? = null
-
-                // Signed in? Show the account's personalized home ("What to watch") first.
-                val personalizedHome = getPersonalizedHomeFromYouTube()
-                if (!personalizedHome.isNullOrEmpty()) {
-                    CrashLogger.d("Personalized YouTube home: ${personalizedHome.size} items")
-                    return@withTimeoutOrNull Result.success(personalizedHome)
-                }
 
                 CrashLogger.d("Trying NewPipeExtractor trending first")
                 val newPipeTrending = newPipeSource.getTrending()
@@ -370,7 +386,7 @@ class StreamRepository @Inject constructor(
 
                 Result.failure(lastException ?: Exception("No trending providers available"))
             } catch (e: Exception) {
-                CrashLogger.e("getTrending fatal error", e)
+                CrashLogger.e("getGenericTrending fatal error", e)
                 Result.failure(Exception("Failed to load trending: ${e.message}"))
             }
         }

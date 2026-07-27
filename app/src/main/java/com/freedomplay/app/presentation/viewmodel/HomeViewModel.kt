@@ -2,6 +2,7 @@ package com.freedomplay.app.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.freedomplay.app.data.local.preferences.PreferencesManager
 import com.freedomplay.app.data.repository.StreamRepository
 import com.freedomplay.app.domain.model.StreamItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,7 +14,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val repository: StreamRepository
+    private val repository: StreamRepository,
+    private val preferencesManager: PreferencesManager
 ) : ViewModel() {
 
     private val _trending = MutableStateFlow<List<StreamItem>>(emptyList())
@@ -30,17 +32,30 @@ class HomeViewModel @Inject constructor(
 
     private val _allTrending = MutableStateFlow<List<StreamItem>>(emptyList())
 
+    private val _isPersonalized = MutableStateFlow(false)
+    val isPersonalized: StateFlow<Boolean> = _isPersonalized.asStateFlow()
+
     init {
         loadTrending()
+        observeAuthState()
+    }
+
+    private fun observeAuthState() {
+        viewModelScope.launch {
+            preferencesManager.hasYouTubeCookies.collect { hasCookies ->
+                if (hasCookies) loadTrending()
+            }
+        }
     }
 
     fun loadTrending() {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
-            repository.getTrending()
-                .onSuccess { items ->
-                    _allTrending.value = items
+            repository.getHomeFeed()
+                .onSuccess { feed ->
+                    _allTrending.value = feed.items
+                    _isPersonalized.value = feed.isPersonalized
                     applyCategoryFilter()
                     _isLoading.value = false
                 }

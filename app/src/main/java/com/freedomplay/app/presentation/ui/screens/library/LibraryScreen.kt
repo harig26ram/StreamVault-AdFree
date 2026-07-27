@@ -230,7 +230,7 @@ fun LibraryScreen(
                     }
                 }
                 else -> {
-                    items(uiState.downloads, key = { it.videoId }) { download ->
+                    items(uiState.downloads.distinctBy { it.videoId }, key = { it.videoId }) { download ->
                         DownloadItem(
                             download = download,
                             onPlay = {
@@ -279,7 +279,7 @@ fun LibraryScreen(
                     )
                 }
             } else {
-                items(uiState.watchHistory, key = { it.videoId }) { entry ->
+                items(uiState.watchHistory.distinctBy { it.videoId }, key = { it.videoId }) { entry ->
                     WatchHistoryItem(
                         entry = entry,
                         onClick = { onVideoClick(entry.videoId) }

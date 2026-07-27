@@ -53,9 +53,9 @@
         <!-- WorkManager foreground service for downloads -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="dataSync|mediaPlayback"
             android:exported="false"
-            tools:node="merge" />
+            tools:replace="android:foregroundServiceType" />
 
         <provider
             android:name="androidx.startup.InitializationProvider"

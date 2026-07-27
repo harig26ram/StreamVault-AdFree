@@ -122,12 +122,9 @@ fun PlayerScreen(
     var isDescriptionExpanded by remember { mutableStateOf(false) }
     var isTouchLocked by remember { mutableStateOf(false) }
     var showDownloadDialog by remember { mutableStateOf(false) }
-    val hdController = rememberHdPlayerController()
+    val hdPlayerState = rememberHdExoPlayerState()
     var controlsVisible by remember { mutableStateOf(true) }
     var isFullscreen by remember { mutableStateOf(false) }
-    var hdPosition by remember { mutableFloatStateOf(0f) }
-    var hdIsPlaying by remember { mutableStateOf(true) }
-    var hdDuration by remember { mutableFloatStateOf(0f) }
 
     val activity = context as? ComponentActivity
     DisposableEffect(activity) {
@@ -149,11 +146,7 @@ fun PlayerScreen(
 
     LaunchedEffect(currentVideoId) {
         while (isActive) {
-            hdController.getState { state ->
-                hdPosition = state.position.toFloat().coerceAtLeast(0f)
-                hdDuration = state.duration.toFloat().coerceAtLeast(0f)
-                hdIsPlaying = state.playing
-            }
+            hdPlayerState.poll()
             delay(500)
         }
     }
@@ -246,10 +239,11 @@ fun PlayerScreen(
                                 .background(Color.Black)
                         ) {
                             key(currentVideoId) {
-                                MinimalWebPlayer(
+                                HdExoPlayerView(
                                     videoId = currentVideoId,
-                                    modifier = Modifier.fillMaxSize(),
-                                    controller = hdController
+                                    stream = currentStream,
+                                    hdPlayerState = hdPlayerState,
+                                    modifier = Modifier.fillMaxSize()
                                 )
                             }
 
@@ -266,40 +260,20 @@ fun PlayerScreen(
 
                             // Double-tap skip overlay
                             DoubleTapSkipOverlay(
-                                onSkipForward = {
-                                    hdController.getCurrentPosition { pos ->
-                                        hdController.seekTo((pos + 10).coerceAtMost(99999.0))
-                                    }
-                                },
-                                onSkipBackward = {
-                                    hdController.getCurrentPosition { pos ->
-                                        hdController.seekTo((pos - 10).coerceAtLeast(0.0))
-                                    }
-                                }
+                                onSkipForward = { hdPlayerState.skipForward() },
+                                onSkipBackward = { hdPlayerState.skipBackward() }
                             )
 
                             BottomPlayerControls(
-                                duration = hdDuration,
-                                currentPosition = hdPosition,
-                                isPlaying = hdIsPlaying,
-                                onTogglePlay = {
-                                    if (hdIsPlaying) hdController.pause() else hdController.play()
-                                },
-                                onSeek = { posSeconds ->
-                                    hdController.seekTo(posSeconds.toDouble())
-                                },
-                                onSkipForward = {
-                                    hdController.getCurrentPosition { pos ->
-                                        hdController.seekTo((pos + 10).coerceAtMost(99999.0))
-                                    }
-                                },
-                                onSkipBackward = {
-                                    hdController.getCurrentPosition { pos ->
-                                        hdController.seekTo((pos - 10).coerceAtLeast(0.0))
-                                    }
-                                },
+                                duration = hdPlayerState.duration,
+                                currentPosition = hdPlayerState.currentPosition,
+                                isPlaying = hdPlayerState.isPlaying,
+                                onTogglePlay = { hdPlayerState.togglePlay() },
+                                onSeek = { pos -> hdPlayerState.seekTo(pos) },
+                                onSkipForward = { hdPlayerState.skipForward() },
+                                onSkipBackward = { hdPlayerState.skipBackward() },
                                 onToggleFullscreen = { toggleFullscreen() },
-                                onMaxQuality = { hdController.setMaxQuality() },
+                                onMaxQuality = {},
                                 visible = controlsVisible,
                                 modifier = Modifier.align(Alignment.BottomCenter)
                             )
@@ -357,7 +331,7 @@ fun PlayerScreen(
                                             ActionButton(
                                                 icon = Icons.Default.HighQuality,
                                                 label = "Max HD",
-                                                onClick = { hdController.setMaxQuality() }
+                                                onClick = {}
                                             )
                                             ActionButton(
                                                 icon = Icons.Default.PictureInPictureAlt,

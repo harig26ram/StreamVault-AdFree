@@ -223,7 +223,7 @@ private fun MusicLibraryTab(
                 modifier = Modifier.padding(vertical = 8.dp)
             )
         }
-        items(libraryItems, key = { it.videoId }) { video ->
+        items(libraryItems.distinctBy { it.videoId }, key = { it.videoId }) { video ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

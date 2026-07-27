@@ -207,7 +207,7 @@ fun SearchScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(
-                        items = results,
+                        items = results.distinctBy { it.videoId },
                         key = { it.videoId }
                     ) { video ->
                         VideoCard(
@@ -363,7 +363,7 @@ private fun EmptySearchState(
                 }
             } else {
                 items(
-                    items = trending,
+                    items = trending.distinctBy { it.videoId },
                     key = { it.videoId }
                 ) { video ->
                     VideoCard(
